@@ -12,6 +12,39 @@ const DEFAULTS = Object.freeze({
   startPlanAnthropicBase: "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
   appVersion: "4.1.10", platform: "win32-x64", sourceTitle: "cli", billingBase: "https://zcode.z.ai/api/v1/zcode-plan",
 });
+
+/**
+ * ZCode 的模型清单（静态表，两地共用）。
+ *
+ * 为什么是静态表：上游没有「列模型」的公开接口 —— 编码套餐的可用模型由客户端内置
+ * 目录决定（参考实现同样硬编码成常量并在注释里写「新模型发布时更新这张表」）。
+ * 所以这里不假装 refresh：`listModels` 无论 force 与否都返回这张表。
+ *
+ * 与旧实现的差别（旧表只有 GLM-5.3 / GLM-5.3-Flash / GLM-5.2 三条）：
+ * 少列一条的代价是客户端在 /v1/models 里根本看不到它，用户会以为渠道不支持 ——
+ * 这比「列了但套餐用不到」更糟（后者上游会如实回 502 exceed quota limit）。
+ *
+ * id 用大写（与 glmModel() 的归一结果、以及号池 zcode 适配器的目录口径一致）：
+ * 客户端无论写 glm-5.1 还是 GLM-5.1，glmModel() 都会归到同一个串再发上游。
+ *
+ * ⚠️ 只声明**有依据**的能力位：视觉两档（GLM-4.6V / GLM-5V-Turbo）明确不支持思考，
+ * 声明成 true 会让客户端按「支持思考」发请求而被上游 400；其余模型不声明
+ * reasoning（不知道就不猜）。contextLength / maxOutputTokens 一律不写 —— 没有
+ * 实测依据的窗口数字会被下游照着构造请求（按虚高的窗口堆历史），比空着更糟。
+ */
+const STATIC_MODELS = Object.freeze([
+  { id: "GLM-5.3", name: "GLM-5.3" },
+  { id: "GLM-5.3-Flash", name: "GLM-5.3 Flash" },
+  { id: "GLM-5.2", name: "GLM-5.2" },
+  { id: "GLM-5.1", name: "GLM-5.1" },
+  { id: "GLM-5", name: "GLM-5" },
+  { id: "GLM-5-Turbo", name: "GLM-5 Turbo" },
+  { id: "GLM-4.7", name: "GLM-4.7" },
+  { id: "GLM-4.6", name: "GLM-4.6" },
+  { id: "GLM-4.5-Air", name: "GLM-4.5 Air" },
+  { id: "GLM-4.6V", name: "GLM-4.6V", capabilities: { reasoning: false } },
+  { id: "GLM-5V-Turbo", name: "GLM-5V Turbo", capabilities: { reasoning: false } },
+]);
 function mappedError(status, data, raw) {
   const text = String(data?.message || data?.msg || data?.error?.message || raw || "ZCode 上游请求失败").slice(0, 1024);
   const match = /^\[(\d{3,5})\]/.exec(text);
@@ -50,8 +83,11 @@ function createZcode(settings = {}) {
     id: "zcode", channels: ["zcode"],
     async listModels(request, ctx) {
       const context = request.grantId ? await ctx.pool.context() : {};
-      // ZCode has a fixed catalog. Balance/package capabilities are not model discovery.
-      return (context.models || ["GLM-5.3", "GLM-5.3-Flash", "GLM-5.2"].map(id => ({ id }))).map(descriptor);
+      // 上游没有「列模型」接口：账号快照里有就用快照（它来自登录时的客户端目录），
+      // 否则回落这张静态表。两条路径都**不因 force 与否改变语义** —— 本家没有
+      // 可远程刷新的目录，假装刷一次只会让用户以为模型变新了。
+      const rows = Array.isArray(context.models) && context.models.length ? context.models : STATIC_MODELS;
+      return rows.map(descriptor);
     },
     async *invoke(request, ctx) {
       const credentials = await ctx.pool.credentials();
@@ -122,4 +158,4 @@ function createZcode(settings = {}) {
     },
   };
 }
-module.exports = { createZcode, glmModel, mappedError };
+module.exports = { createZcode, glmModel, mappedError, STATIC_MODELS };

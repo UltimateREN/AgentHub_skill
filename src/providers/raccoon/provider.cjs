@@ -3,10 +3,22 @@ const crypto = require("node:crypto");
 const { descriptor } = require("../../model-descriptor.cjs");
 const { sse, errorDetail } = require("../../network/sse.cjs");
 const { forwardError, hasContent } = require("../../../sdk/provider-protocol.cjs");
+const reasoning = require("./reasoning.cjs");
 const DEFAULTS = Object.freeze({ chatUrl: "https://xiaohuanxiong.com/api/web/llm/v2/chat/completions", clientName: "raccoon-ai", clientVersion: "1.0.35" });
 function identity(context) { const seed = crypto.createHash("sha256").update(`agenthub:raccoon:${context?.uid || context?.accountId || "anon"}`).digest("hex"); const uuid = `${seed.slice(0, 8)}-${seed.slice(8, 12)}-4${seed.slice(13, 16)}-a${seed.slice(17, 20)}-${seed.slice(20, 32)}`; return { deviceId: context?.identity?.deviceId || uuid, osVersion: context?.identity?.osVersion || "10.0.26200", platform: context?.identity?.platform || "desktop-windows-x64", channel: context?.identity?.clientChannel || "stable", officeIdentity: context?.identity?.officeIdentity || "" }; }
 function modelName(model, settings) { return /^raccoon-chat(-ml)?$/i.test(String(model || "")) ? String(settings.defaultModel || "raccoon-chat-ml-5-5") : String(model || ""); }
-function rewriteBody(model, input, settings = {}) { const out = { ...(input || {}), model: modelName(model, settings), stream: true, stream_options: { ...(input?.stream_options || {}), include_usage: true } }; if (!out.max_tokens && !out.max_completion_tokens) out.max_tokens = 80000; if (out.max_completion_tokens != null && out.max_tokens == null) out.max_tokens = Number(out.max_completion_tokens) || 80000; delete out.max_completion_tokens; delete out.conversation_id; delete out.conversationId; delete out.prompt_cache_key; if (/glm[-._]?5[-._]?3/i.test(out.model)) { const effort = String(out.reasoning_effort || "").toLowerCase(); if (["off", "none", "minimal", "disabled", "false", "0"].includes(effort)) out.reasoning_effort = "low"; else if (effort && !["low", "high", "max"].includes(effort)) out.reasoning_effort = "high"; delete out.thinking; delete out.enable_thinking; } return out; }
+function rewriteBody(model, input, settings = {}) {
+  const out = { ...(input || {}), model: modelName(model, settings), stream: true, stream_options: { ...(input?.stream_options || {}), include_usage: true } };
+  if (!out.max_tokens && !out.max_completion_tokens) out.max_tokens = 80000;
+  if (out.max_completion_tokens != null && out.max_tokens == null) out.max_tokens = Number(out.max_completion_tokens) || 80000;
+  delete out.max_completion_tokens;
+  delete out.conversation_id;
+  delete out.conversationId;
+  delete out.prompt_cache_key;
+  // 思考档位按模型家族归一（DeepSeek 只认开关、GLM-5.3/Kimi-K3 只认两档、
+  // SenseNova/raccoon 系认三档）—— 原样透传 xhigh 会直接 400，见 reasoning.cjs。
+  return reasoning.normalize(out, out.model);
+}
 function headers(context, secrets, settings, sessionId, turnId, title) { const cfg = { ...DEFAULTS, ...settings }; const idn = identity(context); const latin = Array.from(String(title || "")).map(ch => /[\x20-\x7e]/.test(ch) ? ch : encodeURIComponent(ch)).join(""); const h = { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${secrets.token}`, "x-client-name": cfg.clientName, "x-client-platform": idn.platform, "x-client-version": cfg.clientVersion, "x-client-os-version": idn.osVersion, "x-client-channel": idn.channel, "x-client-device-id": idn.deviceId, "X-RACCOON-Session-ID": sessionId, "X-RACCOON-Turn-ID": turnId, "X-RACCOON-Title": latin, "X-RACCOON-Call-Kind": "chat" }; if (idn.officeIdentity && idn.officeIdentity !== "personal") h["X-Org-Code"] = idn.officeIdentity; return h; }
 function failure(status, message, seen = false) { const auth = status === 401 || status === 403; const quota = status === 402; const rate = status === 429; return forwardError({ code: auth ? "AUTH_REQUIRED" : quota ? "QUOTA_EXHAUSTED" : rate ? "RATE_LIMITED" : "UPSTREAM_FAILED", message: auth ? "小浣熊登录态无效，请在号池检查凭据" : quota ? "小浣熊积分不足" : rate ? "小浣熊上游请求受限" : message || "小浣熊模型执行失败", category: auth ? "auth" : quota ? "quota" : rate ? "rate" : "upstream", scope: auth || quota || rate ? "account" : "invocation", replay: seen ? "unsafe" : "unknown", retryable: !seen && (rate || status >= 500), status: status >= 400 && status <= 599 ? status : 502 }); }
 function parseCatalog(payload) {

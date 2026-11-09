@@ -56,6 +56,17 @@ function rewriteBody(model, input) {
   delete body.conversation_id;
   delete body.conversationId;
   delete body.prompt_cache_key;
+  // role: "developer" → "system"：上游不认 OpenAI 新版角色，带它的请求会被上游网关
+  // 以 HTTP 502「角色信息不正确」拒绝（system / user 均 200）。两者在 OpenAI 规范里
+  // 语义相同，按 system 下发。这是实测结论（Agent2Providers lobsterai/chat.rs 第 1 条），
+  // 不是风格偏好 —— 缺这一步时 Codex CLI / Cline 这类发 developer 的客户端会稳定失败。
+  if (Array.isArray(body.messages)) {
+    body.messages = body.messages.map((message) => (
+      message && typeof message === "object" && message.role === "developer"
+        ? { ...message, role: "system" }
+        : message
+    ));
+  }
   return body;
 }
 function parse(raw) {
