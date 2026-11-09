@@ -4,13 +4,15 @@
 // 主程序的 HUIdada1 凭据不参与这里：脚本只从 gh 里读 UltimateREN 的 token，
 // 拼成一次性 URL 推完就丢。两边账号互不影响，也不需要改全局 git 配置。
 //
-// 用法：node tools/push.cjs [branch]
+// 用法：node tools/push.cjs [branch] [--tags]
 const { execFileSync, spawnSync } = require("node:child_process");
 const path = require("node:path");
 
 const REPO = "UltimateREN/AgentHub_skill";
 const root = path.resolve(__dirname, "..");
-const branch = process.argv[2] || "main";
+const args = process.argv.slice(2);
+const branch = args.find(item => !item.startsWith("--")) || "main";
+const withTags = args.includes("--tags");
 
 function readToken() {
   // 清掉环境里的 GH_TOKEN：那是主程序账号的，不能让它盖过 --user
@@ -35,7 +37,8 @@ if (!token) {
 }
 
 const url = `https://x-access-token:${token}@github.com/${REPO}.git`;
-const result = spawnSync("git", ["push", url, `HEAD:${branch}`], { cwd: root, encoding: "utf8" });
+const refs = [`HEAD:${branch}`, ...(withTags ? ["--tags"] : [])];
+const result = spawnSync("git", ["push", url, ...refs], { cwd: root, encoding: "utf8" });
 process.stdout.write(mask(result.stdout));
 process.stderr.write(mask(result.stderr));
 if (result.status !== 0) {
