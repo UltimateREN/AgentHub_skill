@@ -64,7 +64,13 @@ ZCode 的目录由客户端决定，声明 `modelRefresh: false`。手动刷新�
 - `<id>-<version>-<platform>.zip`：签名后的插件包
 - `plugin-index.json`：主程序用来判断版本、平台和下载地址的清单
 
-`npm run build` 之后跑 `tools/build-package.cjs`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库。
+本仓库没有 `build` 脚本（早期文档写错过），打包就是一步：
+
+```bash
+AGENTHUB_PLUGIN_SIGNING_KEY=.release/plugin-signing-key.pem npm run package
+```
+
+`npm run package` 等于 `node tools/build-package.cjs dist`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库。
 
 推 `v*` tag 会触发 `.github/workflows/release-plugin.yml`：跑测试、签名、把 zip 和 `plugin-index.json` 传到同一个 Release。需要在仓库 Secrets 里配 `AGENTHUB_PLUGIN_SIGNING_KEY`，内容是私钥 PEM 全文。
 
@@ -135,6 +141,20 @@ node test/network.test.cjs && node test/accio.test.cjs && node test/trae.test.cj
 覆盖各渠道目录与执行、状态隔离、内容补救、工具与 usage、错误分类、图片编码和取消。全部使用临时目录、合成凭据和本地 HTTP，不连真实账号。
 
 宿主侧另有几条回环测试（在 AgentHub 根目录跑）：`test-gateway-extension-execution.cjs` 用临时签名包走完安装、授权、原 SQLite 号池和正式 HTTP；`test-model-catalog.cjs` 覆盖目录缓存、账号隔离、TTL 和手动刷新；`test-extension-pool-broker.cjs` 覆盖 grant 作用域与实时目录注入。
+
+## 诊断日志
+
+插件进程的 stdout 是 JSON-RPC 协议通道，不能打日志；宿主也只统计 stderr 字节数、不落库
+（原始诊断可能含上游正文与标识）。于是失败排障需要一份插件自己的记录：
+
+- 位置：`$AGENTHUB_PLUGIN_DATA_DIR/logs/plugin.log`（主程序里就是 `plugin-data/<id>/logs/`）
+- 内容：**只记元数据** —— provider / channel / 错误码 / 类别 / 作用域 / 上游状态码 / 已耗时
+- 不记：prompt、正文、token、Cookie、URL
+- 滚动：单文件 2 MiB，超了改名 `.1`（只留一代）
+- 写盘失败全路径 try/catch，绝不影响模型调用
+
+只在 `invoke` 的失败路径写一条，正常调用零开销。宿主日志里的 `UPSTREAM_FAILED` 是脱敏后的
+笼统码，具体是哪家、什么状态码靠这条对。
 
 ## 还没做的
 

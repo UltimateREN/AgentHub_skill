@@ -5,6 +5,9 @@ const { RpcPeer } = require("../rpc.cjs");
 const { createNetwork } = require("./network.cjs");
 const protocol = require("../provider-protocol.cjs");
 const { PROTOCOL, LIMITS, assert, object, identifier, integer, jsonValue, terminal, validateEvent, eventBytes, publicError } = protocol;
+// 诊断日志（只在失败路径写；见 src/diagnostics.cjs 的边界说明）。
+// 用相对路径引到插件根：打包时 sdk/ 与 src/ 一起进 zip，闭包校验会带上它。
+const diagnostics = require("../../src/diagnostics.cjs");
 
 function abortError() { return Object.assign(new Error("Invocation cancelled"), { name: "AbortError" }); }
 function waitAbort(promise, signal) {
@@ -222,7 +225,7 @@ class ProviderRuntime {
     }
     assert((unbounded ? this.features.includes("unbounded-deadline@1") : integer(params.remainingMs, 1, 24 * 3600000)) && object(params.input), "Invalid invocation input or deadline");
     jsonValue(params.input);
-    const record = { params, provider, grant: { id: params.grantId, invocationId: params.invocationId, pending: 0, epoch: 0 }, controller: new AbortController(), deadlineAt: unbounded ? Infinity : Date.now() + params.remainingMs, seq: 0, credit: this.windowBytes, waitCredit: null, terminalSent: false, done: null, pendingNext: null, started: false };
+    const record = { params, provider, grant: { id: params.grantId, invocationId: params.invocationId, pending: 0, epoch: 0 }, controller: new AbortController(), deadlineAt: unbounded ? Infinity : Date.now() + params.remainingMs, seq: 0, credit: this.windowBytes, waitCredit: null, terminalSent: false, done: null, pendingNext: null, started: false, startedAt: Date.now() };
     record.done = new Promise(resolve => { record.resolveDone = resolve; });
     record.timer = unbounded ? null : setTimeout(() => this.abort(record), params.remainingMs);
     const abortRegistration = () => this.abort(record);
@@ -334,6 +337,16 @@ class ProviderRuntime {
         // Cancellation also gets a terminal, even though normal data emission
         // stops on its signal. No raw exception string crosses the boundary.
         const event = { type: "error", error: publicError(error), invocationId: record.params.invocationId, generation: this.generation, seq: ++record.seq };
+        // 诊断：只记元数据（渠道 / 错误码 / 类别 / 状态码 / 已耗时），不记正文与凭据。
+        // 宿主侧日志只有 UPSTREAM_FAILED 这个笼统码，具体是哪家、什么状态码靠这条。
+        try {
+          const e = event.error || {};
+          const ms = record.startedAt ? Date.now() - record.startedAt : 0;
+          diagnostics.error(
+            `${record.provider.id}/${record.params.channel || ""}`,
+            `invoke failed: code=${e.code || ""} category=${e.category || ""} scope=${e.scope || ""} status=${e.status || 0} ms=${ms}`,
+          );
+        } catch { /* 诊断失败不影响错误上报 */ }
         record.terminalSent = true;
         try { await this.peer.notify("provider.event", event); } catch { /* Connection already failed. */ }
       }
