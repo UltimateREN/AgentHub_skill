@@ -57,6 +57,61 @@ ZCode 的目录由客户端决定，声明 `modelRefresh: false`。手动刷新�
 
 `modelRefresh` 省略时按可刷处理；显式 `false` 仍允许普通 `listModels` 返回固定目录。
 
+## 发布与自动更新
+
+发布产物有两个文件，都放在同一个 GitHub Release 里：
+
+- `<id>-<version>-<platform>.zip`：签名后的插件包
+- `plugin-index.json`：主程序用来判断版本、平台和下载地址的清单
+
+`npm run build` 之后跑 `tools/build-package.cjs`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库。
+
+清单长这样：
+
+```json
+{
+  "schema": 1,
+  "plugins": [{
+    "id": "com.agenthub.forwarding-suite",
+    "version": "1.0.0",
+    "minimumVersion": "",
+    "minHostVersion": "",
+    "platforms": [{ "os": "win32", "arch": "x64" }],
+    "url": "https://github.com/UltimateREN/AgentHub_skill/releases/download/v1.0.0/....zip",
+    "sha256": "..."
+  }]
+}
+```
+
+`minimumVersion` 留空表示不强制升级。填了之后，低于它的安装会被主程序强制补齐，不受「自动更新插件」开关影响 —— 这是最低版本兜底。
+
+主程序内置官方公钥（keyId `agenthub-release-2026`），包内 manifest 的签名必须对得上才会装。`sha256` 只保证传输完整，信任判断在签名那一步。
+
+主程序的设置页有两个开关：
+
+- **自动更新插件**：已启用的官方插件有新版本时自动下载、校验、安装
+- **自动下载官方插件**：发现未安装的官方插件时自动装；开着的时候手动卸载也会被装回来
+
+两个开关都关掉后，日常更新暂停，但已安装插件低于 `minimumVersion` 时仍会补齐。
+
+下载走主程序自己的代理回退（先直连，失败再试本机常见代理端口），不需要插件额外配置。
+
+卸载只删插件目录，`plugin-data/<id>` 保留。装回来之后插件自己的配置和缓存还在。
+
+## 提交与推送
+
+这个仓库属于 `UltimateREN`，提交和推送都用这个身份：
+
+```bash
+git config user.name "UltimateREN"
+git config user.email "354340680+UltimateREN@users.noreply.github.com"
+node tools/push.cjs
+```
+
+`tools/push.cjs` 只从 gh 里取 UltimateREN 的 token，推完即弃，不写全局配置。
+
+主程序 `AgentHub` 用的是另一个账号（HUIdada1），两边的凭据和提交记录互不影响。不要把主程序的 GCM 凭据套到这里，也不要用 HUIdada1 提交这个仓库。
+
 ## 运行
 
 需要 Node 22+。宿主以 stdio JSON-RPC 启动 `main.cjs`，stdout 只输出协议。

@@ -87,6 +87,27 @@ async function main() {
   await run(seven, ["a", "-tzip", "-mx=9", archive, "."], { cwd: stage });
   fs.rmSync(stage, { recursive: true, force: true });
   fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+
+  // 官方更新清单：主程序按它判断版本、平台和下载地址。
+  // minimumVersion 留空表示不强制升级；填了之后低于它的安装会被强制补齐，不受自动更新开关影响。
+  const repo = process.env.AGENTHUB_RELEASE_REPO || "UltimateREN/AgentHub_skill";
+  const releaseTag = process.env.AGENTHUB_RELEASE_TAG || `v${manifest.version}`;
+  const assetName = path.basename(archive);
+  const index = {
+    schema: 1,
+    plugins: [{
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      minimumVersion: process.env.AGENTHUB_PLUGIN_MINIMUM_VERSION || "",
+      minHostVersion: process.env.AGENTHUB_PLUGIN_MIN_HOST_VERSION || "",
+      platforms: manifest.runtime.platforms,
+      url: `https://github.com/${repo}/releases/download/${releaseTag}/${assetName}`,
+      sha256: crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex"),
+    }],
+  };
+  fs.writeFileSync(path.join(out, "plugin-index.json"), JSON.stringify(index, null, 2) + "\n");
   console.log(`Wrote ${archive}`);
+  console.log(`Wrote ${path.join(out, "plugin-index.json")}`);
 }
 main().catch(error => { console.error(error.stack || error); process.exitCode = 1; });
