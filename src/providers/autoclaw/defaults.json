@@ -1,0 +1,18 @@
+{
+  "autoclaw": {
+    "userapiBase": "https://autoglm-acceleration-api.zhipuai.cn",
+    "catalogPath": "/autoclaw-proxy/proxy/autoclaw-model-config",
+    "authAppId": "100003",
+    "authAppKey": "38d2391985e2369a5fb8227d8e6cd5e5",
+    "llmProxyPath": "/autoclaw-proxy/proxy/autoclaw",
+    "llmVersion": "2.2.0"
+  },
+  "autoclaw_intl": {
+    "userapiBase": "https://autoglm-api.autoglm.ai",
+    "catalogPath": "/autoclaw-proxy/proxy/autoclaw-model-config",
+    "authAppId": "100003",
+    "authAppKey": "38d2391985e2369a5fb8227d8e6cd5e5",
+    "llmProxyPath": "/autoclaw-proxy/proxy/autoclaw",
+    "llmVersion": "1.17.8"
+  }
+}

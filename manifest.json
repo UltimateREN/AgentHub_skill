@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "id": "com.agenthub.forwarding-suite",
+  "name": "模型反代执行器",
+  "publisher": "agenthub",
+  "version": "0.1.0",
+  "host": { "api": ">=1.0.0 <2.0.0" },
+  "transport": { "kind": "stdio-jsonrpc", "version": 1 },
+  "runtime": {
+    "kind": "node",
+    "entry": "src/main.cjs",
+    "node": ">=22 <24",
+    "platforms": [
+      { "os": "win32", "arch": "x64" },
+      { "os": "win32", "arch": "arm64" },
+      { "os": "linux", "arch": "x64", "libc": "glibc" },
+      { "os": "linux", "arch": "arm64", "libc": "glibc" },
+      { "os": "darwin", "arch": "x64" },
+      { "os": "darwin", "arch": "arm64" }
+    ]
+  },
+  "capabilities": ["ai.provider@1"],
+  "permissions": {
+    "required": ["pool.forward-scoped", "network.outbound"],
+    "optional": ["storage.private", "request.headers.read"]
+  },
+  "contributes": { "providers": [
+    { "id": "trae", "channels": ["trae"], "catalogMode": "account" },
+    { "id": "raccoon", "channels": ["raccoon"], "catalogMode": "account" },
+    { "id": "accio", "channels": ["accio"], "catalogMode": "account" },
+    { "id": "accio_cn", "channels": ["accio_cn"], "catalogMode": "account" },
+    { "id": "codearts", "channels": ["codearts"], "catalogMode": "account" },
+    { "id": "modelscope", "channels": ["modelscope"], "catalogMode": "account" },
+    { "id": "lobster", "channels": ["lobster"], "catalogMode": "account" },
+    { "id": "catpaw", "channels": ["catpaw"], "catalogMode": "account", "requestHeaders": ["x-session-id"] },
+    { "id": "monkeycode", "channels": ["monkeycode"], "catalogMode": "account" },
+    { "id": "monkeycode_intl", "channels": ["monkeycode_intl"], "catalogMode": "account" },
+    { "id": "kuku", "channels": ["kuku"], "catalogMode": "account" },
+    { "id": "loomy", "channels": ["loomy"] },
+    { "id": "cline_free", "channels": ["cline_free"], "catalogMode": "account" },
+    { "id": "cline_pass", "channels": ["cline_pass"], "catalogMode": "account" },
+    { "id": "autoclaw", "channels": ["autoclaw"], "catalogMode": "account", "requestHeaders": ["x-autoclaw-session-id", "x-autoclaw-agent-id", "x-autoclaw-zcode-invocation-id"] },
+    { "id": "autoclaw_intl", "channels": ["autoclaw_intl"], "catalogMode": "account", "requestHeaders": ["x-autoclaw-session-id", "x-autoclaw-agent-id", "x-autoclaw-zcode-invocation-id"] },
+    { "id": "workbuddy", "channels": ["workbuddy", "workbuddy_ai"], "catalogMode": "account" },
+    { "id": "qoder", "channels": ["qoder"], "catalogMode": "account" },
+    { "id": "qoder_intl", "channels": ["qoder_intl"], "catalogMode": "account" },
+    { "id": "zcode", "channels": ["zcode"], "catalogMode": "account", "modelRefresh": false }
+  ] },
+  "dataSchema": 1
+}

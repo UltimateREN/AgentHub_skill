@@ -1,0 +1,14 @@
+{
+  "apiBase": "https://api.cline.bot/api/v1",
+  "upstreamHeaders": {
+    "User-Agent": "Cline/3.0.62",
+    "HTTP-Referer": "https://cline.bot",
+    "X-Title": "Cline",
+    "X-IS-MULTIROOT": "false",
+    "X-CLIENT-TYPE": "cline-sdk",
+    "X-CLIENT-VERSION": "3.0.62",
+    "X-PLATFORM": "terminal",
+    "X-PLATFORM-VERSION": "3.0.62",
+    "X-CORE-VERSION": "0.0.70"
+  }
+}

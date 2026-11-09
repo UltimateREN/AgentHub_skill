@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "protocol": 1,
+  "features": [
+    "unbounded-deadline@1",
+    "scoped-grant-rotation@1",
+    "attempt-reservation@1",
+    "explicit-retry-policy@1",
+    "execution-facts@1",
+    "request-headers@1",
+    "state-scope@1",
+    "account-execution-epoch@1"
+  ],
+  "files": {
+    "runtime/provider.cjs": "7b38a739ef374c0941d6c704c4b0fe76dd77749b4bf5c9e3c9bc52944cabf1d5",
+    "runtime/network.cjs": "24f910608e8cf012fe15589d1c4158191798ec5e53dda1798f2c811f4c75a1d9",
+    "rpc.cjs": "2fc8d4babf52105c1ab3887a3c4cbd704f0d19b8ee876ce8920fd92b25ebd670",
+    "provider-protocol.cjs": "f1e5799b0f973df08c234b50392e95b3031c1d104f0c513a7258b9f4943ada6e",
+    "provider-session.cjs": "1357115e9bedcd8eda7a11e53724de0ecb7682627e4e898e52c9044092c49579"
+  }
+}

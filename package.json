@@ -1,0 +1,21 @@
+{
+  "name": "agenthub-forwarding-plugin",
+  "version": "0.1.0",
+  "private": false,
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "commonjs",
+  "description": "独立模型反代执行插件，账号管理由 AgentHub 原号池提供",
+  "main": "src/main.cjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node test/network.test.cjs && node test/accio.test.cjs && node test/trae.test.cjs && node test/raccoon.test.cjs && node test/workbuddy.test.cjs && node test/loomy.test.cjs && node test/content-remediation.test.cjs && node test/loomy-budget.test.cjs && node test/cline.test.cjs && node test/autoclaw.test.cjs && node test/catpaw-state.test.cjs && node test/catpaw-image.test.cjs && node test/catpaw.test.cjs && node test/monkeycode.test.cjs && node test/kuku.test.cjs && node test/codearts.test.cjs && node test/modelscope.test.cjs && node test/lobster.test.cjs && node test/qoder.test.cjs && node test/zcode.test.cjs",
+    "start": "node src/main.cjs",
+    "package": "node tools/build-package.cjs"
+  },
+  "dependencies": {
+    "koffi": "^3.2.1",
+    "sharp": "0.35.5"
+  }
+}
