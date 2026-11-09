@@ -1,0 +1,50 @@
+name: Release plugin
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Write signing key
+        shell: bash
+        run: |
+          mkdir -p .release
+          printf '%s' "${{ secrets.AGENTHUB_PLUGIN_SIGNING_KEY }}" > .release/plugin-signing-key.pem
+
+      - name: Build signed package
+        shell: bash
+        env:
+          AGENTHUB_PLUGIN_SIGNING_KEY: .release/plugin-signing-key.pem
+          AGENTHUB_7ZA: 7z
+        run: node tools/build-package.cjs dist
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/*.zip dist/plugin-index.json \
+            --title "$TAG" \
+            --notes "插件包与更新清单，主程序按 plugin-index.json 自动更新。" \
+            --verify-tag || \
+          gh release upload "$TAG" dist/*.zip dist/plugin-index.json --clobber

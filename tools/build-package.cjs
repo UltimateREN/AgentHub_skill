@@ -35,9 +35,11 @@ function signingPayload(manifest) {
 function files(dir, prefix = "", includeRuntimeDependencies = false) {
   const result = [];
   for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (item.name === "dist" || item.name === ".git" || item.name === "manifest.json"
+    if (item.name === "dist" || item.name === ".git" || item.name === ".release" || item.name === "manifest.json"
       || item.name === "manifest.template.json" || item.name === "test" || item.name === "tools"
       || item.name === "package-lock.json" || item.name === "package.json") continue;
+    // 符号链接不进包：7za 会把链接目标打进去，但这里按文件系统枚举不到，清单和包就会对不上
+    if (item.isSymbolicLink()) continue;
     if (item.name === "node_modules" && !includeRuntimeDependencies) continue;
     const abs = path.join(dir, item.name), rel = prefix ? `${prefix}/${item.name}` : item.name;
     if (item.isDirectory()) result.push(...files(abs, rel, includeRuntimeDependencies));
@@ -46,9 +48,11 @@ function files(dir, prefix = "", includeRuntimeDependencies = false) {
   return result;
 }
 function copyTree(stage) {
-  fs.rmSync(stage, { recursive: true, force: true });
+  try { fs.rmSync(stage, { recursive: true, force: true }); }
+  catch { console.warn(`清理 ${stage} 失败，继续覆盖写入`); }
   fs.mkdirSync(stage, { recursive: true });
-  for (const [rel, abs] of files(root)) {
+  // 运行时依赖也在同一份清单里枚举，避免「复制一份、打包另一份」对不上
+  for (const [rel, abs] of files(root, "", true)) {
     const dest = path.join(stage, ...rel.split("/"));
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(abs, dest);
@@ -65,9 +69,8 @@ async function main() {
   const stage = path.join(out, "stage");
   copyTree(stage);
   const template = JSON.parse(fs.readFileSync(path.join(root, "manifest.template.json"), "utf8"));
-  // Native provider dependencies are part of the signed runtime closure. The
-  // package must not rely on AgentHub's node_modules after installation.
-  fs.cpSync(path.join(root, "node_modules"), path.join(stage, "node_modules"), { recursive: true });
+  // 原生依赖是签名运行时闭包的一部分，插件装好后不能依赖 AgentHub 的 node_modules。
+  // copyTree 已把 node_modules 一起复制（跳过符号链接），这里只做一次加载自检。
   const stagedRequire = createRequire(path.join(stage, "src", "main.cjs"));
   for (const dependency of Object.keys(require(path.join(root, "package.json")).dependencies || {})) stagedRequire(dependency);
   const target = { os: process.platform, arch: process.arch };
@@ -85,7 +88,8 @@ async function main() {
   fs.rmSync(archive, { force: true });
   const seven = process.env.AGENTHUB_7ZA || path.resolve(root, "..", "AgentHub", "node_modules/7zip-bin/win/x64/7za.exe");
   await run(seven, ["a", "-tzip", "-mx=9", archive, "."], { cwd: stage });
-  fs.rmSync(stage, { recursive: true, force: true });
+  try { fs.rmSync(stage, { recursive: true, force: true }); }
+  catch { console.warn(`临时目录 ${stage} 未清理，下次构建前可手动删除`); }
   fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 
   // 官方更新清单：主程序按它判断版本、平台和下载地址。

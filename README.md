@@ -66,6 +66,8 @@ ZCode 的目录由客户端决定，声明 `modelRefresh: false`。手动刷新�
 
 `npm run build` 之后跑 `tools/build-package.cjs`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库。
 
+推 `v*` tag 会触发 `.github/workflows/release-plugin.yml`：跑测试、签名、把 zip 和 `plugin-index.json` 传到同一个 Release。需要在仓库 Secrets 里配 `AGENTHUB_PLUGIN_SIGNING_KEY`，内容是私钥 PEM 全文。
+
 清单长这样：
 
 ```json
