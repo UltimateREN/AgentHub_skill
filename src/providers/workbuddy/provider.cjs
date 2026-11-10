@@ -4,11 +4,27 @@ const { descriptor, privateValue } = require("../../model-descriptor.cjs");
 const { sse } = require("../../network/sse.cjs");
 const { forwardError, hasContent } = require("../../../sdk/provider-protocol.cjs");
 
+// 事实来源：本机官方桌面端 CN 5.9.3 / AI 5.9.4 的 main/server.js
+// buildVlmGatewayHeaders + applyGatewayHeaders + /v3/config，以及示例项目 Agent2Providers。
+// 端点/客户端版本随桌面端升级而变，settings 可按渠道覆盖，不要在这里抄第二份假值。
 const DEFAULTS = Object.freeze({
-  workbuddy: { chatUrl: "https://codebuddy.cn/api/v2/chat/completions", consoleChatUrl: "https://codebuddy.cn/api/console/chat/completions", origin: "https://www.codebuddy.cn", userAgent: "WorkBuddy/5.6.2", ideName: "WorkBuddy" },
-  workbuddy_ai: { chatUrl: "https://www.workbuddy.ai/api/v2/chat/completions", consoleChatUrl: "https://www.workbuddy.ai/api/console/chat/completions", origin: "https://www.workbuddy.ai", userAgent: "WorkBuddy AI/5.6.2", ideName: "WorkBuddy AI" },
+  workbuddy: {
+    chatUrl: "https://www.workbuddy.cn/v2/chat/completions",
+    consoleChatUrl: "https://copilot.tencent.com/v2/chat/completions",
+    userAgent: "WorkBuddy/5.9.3 WorkBuddy/5.9.3 CLI/2.165.0",
+    ideName: "WorkBuddy",
+    clientVersion: "5.9.3",
+    deploymentType: "SaaS",
+  },
+  workbuddy_ai: {
+    chatUrl: "https://www.workbuddy.ai/v2/chat/completions",
+    consoleChatUrl: "https://www.workbuddy.ai/console/chat/completions",
+    userAgent: "WorkBuddy/5.9.4 WorkBuddy/5.9.4 CLI/2.165.0",
+    ideName: "WorkBuddy",
+    clientVersion: "5.9.4",
+    deploymentType: "SaaS",
+  },
 });
-function stable(value, purpose) { return crypto.createHash("sha256").update(`agenthub:${purpose}:${value || "anon"}`).digest("hex").slice(0, 36); }
 function errorFor(status, code, message, scope = "invocation") {
   return forwardError({ code, message, category: status === 401 ? "auth" : status === 429 ? "rate" : "upstream", scope, replay: status === 401 || status === 429 || status >= 500 ? "safe" : "unknown", retryable: status === 401 || status === 429 || status >= 500, status });
 }
@@ -18,12 +34,18 @@ function cleanText(value, settings) {
   for (const [from, to] of Object.entries(map)) if (from) result = result.split(from).join(String(to));
   return result.replace(/x-anthropic-billing-header:[^;\n]*;?\s*/gi, "").replace(/\bcc_[a-z0-9_]+=[^;\n]*;?\s*/gi, "").replace(/x-anthropic-billing-header/gi, "x-anthropic-billing-hdr");
 }
-function rewrite(model, input, account, settings, channel) {
-  const out = { ...(input || {}), model: String(model), stream: true, stream_options: { ...((input || {}).stream_options || {}), include_usage: true } };
-  if (out.max_completion_tokens != null && out.max_tokens == null) out.max_tokens = out.max_completion_tokens;
+function rewrite(model, input, account, settings) {
+  const out = { ...(input || {}), model: String(model), stream: true };
+  if (!out.stream_options || typeof out.stream_options !== "object" || Array.isArray(out.stream_options)) out.stream_options = { include_usage: true };
+  if (out.max_tokens == null && Number.isInteger(out.max_completion_tokens) && out.max_completion_tokens > 0) out.max_tokens = out.max_completion_tokens;
   delete out.max_completion_tokens;
-  if (out.tool_choice === "none") { delete out.tools; delete out.functions; delete out.tool_choice; }
-  else if (out.tool_choice && typeof out.tool_choice === "object") out.tool_choice = out.tool_choice.function?.name || (out.tool_choice.type === "any" || out.tool_choice.type === "required" ? "required" : "auto");
+  const choice = out.tool_choice;
+  const choiceType = choice && typeof choice === "object" && !Array.isArray(choice) ? String(choice.type || "").toLowerCase() : "";
+  if (choice === "none" || choiceType === "none") { delete out.tools; delete out.functions; delete out.tool_choice; }
+  else if (typeof choice === "string") { /* 上游只认字符串；原样保留 */ }
+  else if (choiceType === "auto" || choiceType === "required") out.tool_choice = choiceType;
+  else if (choiceType === "function") out.tool_choice = String(choice.function?.name || choice.name || "auto");
+  else if (choice !== undefined) delete out.tool_choice;
   const messages = Array.isArray(out.messages) ? out.messages : [];
   const valid = new Set(messages.filter(m => m?.role === "assistant" && Array.isArray(m.tool_calls)).flatMap(m => m.tool_calls.filter(x => x?.id).map(x => String(x.id))));
   out.messages = messages.map(message => {
@@ -31,19 +53,66 @@ function rewrite(model, input, account, settings, channel) {
     if (String(item.role).toLowerCase() === "developer") item.role = "system";
     if (item.role === "tool" && !valid.has(String(item.tool_call_id || ""))) return null;
     if (typeof item.content === "string") item.content = cleanText(item.content, settings);
+    else if (Array.isArray(item.content)) item.content = item.content.map(part => part && part.type === "image_url"
+      && typeof part.image_url === "string" && part.image_url ? { ...part, image_url: { url: part.image_url } } : part);
     if (Array.isArray(item.tool_calls)) item.tool_calls = item.tool_calls.filter(x => x?.id && valid.has(String(x.id)));
     return item;
   }).filter(Boolean);
-  if (channel === "workbuddy_ai" && out.messages.length && out.messages[0].role !== "system") out.messages.unshift({ role: "system", content: "You are a helpful assistant." });
-  out.conversation_id ||= crypto.createHash("sha256").update(JSON.stringify(out.messages.slice(-3))).digest("hex").slice(0, 32);
-  out.prompt_cache_key ||= `${account?.uid || account?.accountId || "anon"}:${out.conversation_id}`;
+  const first = out.messages[0];
+  if (out.messages.length && !(first && String(first.role).toLowerCase() === "system")) {
+    out.messages.unshift({ role: "system", content: "你是一个得力助手" });
+  }
+  out.conversation_id ||= crypto.randomUUID();
+  if (!out.prompt_cache_key) {
+    const uid = String(account?.uid || account?.accountId || "");
+    const hash = crypto.createHash("sha256").update(`${uid}|${out.conversation_id}`).digest("hex").slice(0, 32);
+    out.prompt_cache_key = `wb2a-${(uid.slice(0, 8) || "-")}-${hash}`;
+  }
   return out;
 }
-function headers(channel, account, secrets, settings, url) {
+function headers(channel, account, secrets, settings, { conversation = true } = {}) {
   const base = { ...DEFAULTS[channel], ...(settings || {}) };
   const uid = String(account?.uid || account?.accountId || "");
-  const origin = base.origin;
-  return { "content-type": "application/json", accept: "application/json, text/event-stream", "accept-language": channel === "workbuddy_ai" ? "en-US" : "zh-CN", "user-agent": base.userAgent, origin, referer: origin + "/", "x-requested-with": "XMLHttpRequest", "x-codebuddy-request": "1", authorization: `Bearer ${secrets.token}`, "x-agent-purpose": "conversation", "x-ide-name": base.ideName, "x-ide-type": base.ideName, "x-ide-version": base.clientVersion || "5.6.2", "x-product": base.ideName, ...(uid ? { "x-user-id": uid, "x-machine-id": stable(uid, "machine"), "x-session-id": stable(uid, "session") } : { "x-no-user-id": "1" }), ...(channel === "workbuddy_ai" ? { "x-no-enterprise-id": "1", "x-domain": "www.workbuddy.ai" } : { "x-no-enterprise-id": "1", "x-no-department-info": "1" }), referer: url };
+  const traceId = crypto.randomBytes(16).toString("hex");
+  const spanId = crypto.randomBytes(8).toString("hex");
+  const parentSpanId = crypto.randomBytes(8).toString("hex");
+  const result = {
+    "content-type": "application/json",
+    accept: "application/json",
+    "user-agent": base.userAgent,
+    "x-requested-with": "XMLHttpRequest",
+    "x-codebuddy-request": "1",
+    authorization: `Bearer ${secrets.token}`,
+    "x-agent-intent": "craft",
+    "x-agent-type": "main",
+    ...(channel === "workbuddy" ? { "x-agent-runtime": "local-agent" } : {}),
+    "x-agent-purpose": "conversation",
+    "x-ide-name": base.ideName,
+    "x-ide-type": base.ideName,
+    "x-ide-version": base.clientVersion,
+    "x-private-data": "true",
+    "x-product": base.deploymentType || "SaaS",
+    "x-trace-id": traceId,
+    traceparent: `00-${traceId}-${spanId}-01`,
+    b3: `${traceId}-${spanId}-1-${parentSpanId}`,
+    "x-b3-traceid": traceId,
+    "x-b3-spanid": spanId,
+    "x-b3-parentspanid": parentSpanId,
+    "x-b3-sampled": "1",
+  };
+  if (conversation) {
+    result["x-conversation-id"] = crypto.randomUUID();
+    result["x-conversation-request-id"] = crypto.randomUUID();
+    result["x-conversation-message-id"] = crypto.randomUUID();
+  }
+  result["x-request-id"] = crypto.randomUUID();
+  if (uid) result["x-user-id"] = uid;
+  if (account?.enterpriseId) {
+    result["x-enterprise-id"] = String(account.enterpriseId);
+    result["x-tenant-id"] = String(account.enterpriseId);
+  }
+  if (account?.domain) result["x-domain"] = String(account.domain);
+  return result;
 }
 async function* invokeStream(response, signal) {
   let seen = false, finish = "stop";
@@ -61,7 +130,7 @@ async function* invokeStream(response, signal) {
 }
 function createWorkBuddy(settings = {}) {
   const catalogDefaults = {
-    workbuddy: { modelsUrl: "https://copilot.tencent.com/console/enterprises/personal/models", modelsV3Url: "https://copilot.tencent.com/v3/config" },
+    workbuddy: { modelsUrl: "https://www.workbuddy.cn/console/enterprises/personal/models", modelsV3Url: "https://www.workbuddy.cn/v3/config" },
     workbuddy_ai: { modelsUrl: "https://www.workbuddy.ai/console/enterprises/personal/models", modelsV3Url: "https://www.workbuddy.ai/v3/config" },
   };
   async function getJson(fetcher, url, options) {
@@ -97,10 +166,10 @@ function createWorkBuddy(settings = {}) {
       const secrets = await ctx.pool.credentials();
       if (!secrets?.token) throw new Error("WorkBuddy catalog requires an account token");
       const account = context;
-      const headersFor = url => headers(channel, account, secrets, base, url);
+      const headersFor = () => headers(channel, account, secrets, base, { conversation: false });
       const fetcher = ctx.pool.network().fetch;
       const results = await Promise.all([base.modelsUrl, base.modelsV3Url].filter(Boolean).map(async (url, index) => {
-        const response = await getJson(fetcher, url, { method: "GET", headers: headersFor(url), signal: ctx.signal });
+        const response = await getJson(fetcher, url, { method: "GET", headers: headersFor(), signal: ctx.signal });
         if (!response.ok) return { authoritative: index === 1, models: [] };
         const rows = response.data?.data?.models || response.data?.models || response.data?.data || [];
         return { authoritative: index === 1, models: Array.isArray(rows) ? rows.map(mapCatalogModel).filter(Boolean) : [] };
@@ -122,10 +191,11 @@ function createWorkBuddy(settings = {}) {
       const key = String(request.model || "").toLowerCase();
       const entry = (Array.isArray(account.models) ? account.models : []).find(item => String(item?.id || "").toLowerCase() === key);
       const upstreamModel = String(privateValue(entry, "upstreamModel") || request.model);
-      const body = rewrite(upstreamModel, request.input, account, settings, channel); const base = { ...DEFAULTS[channel], ...settings };
+      const body = rewrite(upstreamModel, request.input, account, settings); const base = { ...DEFAULTS[channel], ...settings };
+      const requestHeaders = headers(channel, account, secrets, settings);
       let response; let last;
       for (const url of [base.chatUrl, base.consoleChatUrl].filter(Boolean)) {
-        response = await ctx.pool.network().fetch(url, { method: "POST", redirect: "error", signal: ctx.signal, headers: headers(channel, account, secrets, settings, url), body: JSON.stringify(body) });
+        response = await ctx.pool.network().fetch(url, { method: "POST", redirect: "error", signal: ctx.signal, headers: requestHeaders, body: JSON.stringify(body) });
         if (response.status !== 404 && response.status !== 405) break; last = response;
       }
       if (!response || response.status === 404 || response.status === 405) throw errorFor(response?.status || 502, "UPSTREAM_FAILED", `WorkBuddy 上游请求失败 HTTP ${response?.status || 0}`);

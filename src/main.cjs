@@ -53,7 +53,9 @@ runStdio({ providers: [createLoomy(config.loomy || {}),
   createWorkBuddy(config.workbuddy || {}), createQoder("qoder", config.qoder || {}),
   createQoder("qoder_intl", config.qoder_intl || {}),
   createQoder("qwen_office", config.qwen_office || {}),
-  createQoder("qwen_office_intl", config.qwen_office_intl || {}),
+  // 千问办公国际版暂时隐藏（宿主 store.QWEN_OFFICE_INTL_ENABLED=false）；
+  // 恢复时连同 manifest 的 provider 声明一起打开。
+  // createQoder("qwen_office_intl", config.qwen_office_intl || {}),
   createCommandCode(config.commandcode || {}), createOfficeAce(config.officeace || {}),
   createAtomCode(config.atomcode || {}), createOrcaTerm(config.orcaterm || {}),
   createAStudio(config.astudio || {}), createDoubaoWork(config.doubaowork || {}),

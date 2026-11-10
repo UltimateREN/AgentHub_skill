@@ -1,6 +1,6 @@
 {
   "name": "agenthub-forwarding-plugin",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": false,
   "license": "SEE LICENSE IN LICENSE",
   "type": "commonjs",
