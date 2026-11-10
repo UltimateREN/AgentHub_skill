@@ -31,13 +31,28 @@ const ENDPOINTS = Object.freeze({
   },
 });
 // 千问办公的静态兜底（Agent2Providers qwenwork_fallback_models，2026-10-31 复核）。
-// id = 上游 key（model_config.key 用它），name = 展示名。
+// 对外 id 用客户端展示名（去空白），上游 key 放 routing.upstreamKey——与远端目录同口径，
+// 否则未拉取目录时界面显示 pro/flash，与官方客户端对不上（#179）。
 const STATIC_QWENWORK_MODELS = [
-  { id: "pro", name: "高级" },
-  { id: "flash", name: "标准" },
-  { id: "qwen3.8-max-preview", name: "Qwen3.8-Max" },
+  { id: "高级", name: "高级", rate: null, capabilities: { tools: true }, contextLength: 131072, maxOutputTokens: 32768, routing: { upstreamKey: "pro" } },
+  { id: "标准", name: "标准", rate: null, capabilities: { tools: true }, contextLength: 131072, maxOutputTokens: 32768, routing: { upstreamKey: "flash" } },
+  { id: "Qwen3.8-Max", name: "Qwen3.8-Max", rate: null, capabilities: { tools: true }, contextLength: 131072, maxOutputTokens: 32768, routing: { upstreamKey: "qwen3.8-max-preview" } },
 ];
-const STATIC_CN_MODELS = ["auto", "qfmodel", "qmodel_38max", "qmodel", "q37fmodel", "qmodel_latest", "dfmodel", "dmodel", "gfmodel", "gmodel", "gm51model", "kmodel", "kmodel_latest", "mmodel"];
+// Qoder CN 静态兜底：取 Agent2Providers qoder/models.rs 的 CN 表（2026-09-20 实测快照）。
+// 对外 id = 官方客户端展示名（去空白），上游 key 放 routing.upstreamKey；rate 为 price_factor。
+// 旧实现只有一串裸 key（qfmodel/qmodel…），界面与客户端展示名完全对不上（#179）。
+const STATIC_CN_MODELS = [
+  { id: "Qwen3.8-Flash", name: "Qwen3.8-Flash", rate: 0.1, capabilities: { tools: true, reasoning: true, images: true }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "qfmodel" } },
+  { id: "Qwen3.8-Max", name: "Qwen3.8-Max", rate: 0.5, capabilities: { tools: true, reasoning: true, images: true }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "qmodel_38max" } },
+  { id: "Auto", name: "Auto", rate: 1, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "auto" } },
+  { id: "Qwen3.7-Max", name: "Qwen3.7-Max", rate: 0.5, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "qmodel_latest" } },
+  { id: "Qwen3.7-Plus", name: "Qwen3.7-Plus", rate: 0.1, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "qmodel" } },
+  { id: "DeepSeek-V4-Pro", name: "DeepSeek-V4-Pro", rate: 0.8, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "dmodel" } },
+  { id: "DeepSeek-Flash", name: "DeepSeek-Flash", rate: 0.2, capabilities: { tools: true, reasoning: false, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "dfmodel" } },
+  { id: "GLM-5.3", name: "GLM-5.3", rate: 0.6, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "gmodel" } },
+  { id: "Kimi-K2.8-Preview", name: "Kimi-K2.8-Preview", rate: 0.3, capabilities: { tools: true, reasoning: true, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "kmodel" } },
+  { id: "MiniMax-M3", name: "MiniMax-M3", rate: 0.2, capabilities: { tools: true, reasoning: false, images: false }, contextLength: 200000, maxOutputTokens: 32768, routing: { upstreamKey: "mmodel" } },
+];
 
 function cachedCatalog(product, uid) {
   if (!/^[0-9a-zA-Z-]{1,128}$/.test(uid)) throw new Error("Qoder account ID is invalid");
@@ -61,13 +76,19 @@ function modelsFromCatalog(json) {
     // 早先按 enable 过滤会把 17 条目录砍到 1 条（实测普通账号只有 Qwen3.8-Flash
     // 是 enable:true），与官方客户端的模型列表不符。目录保留全部**有展示名**的条目，
     // 可用性交给上游在请求时判定；缺 display_name 的是无效/退役条目，照旧丢弃。
-    if (!model || !model.key || !model.display_name || models.has(model.key)) continue;
+    if (!model || !model.key || !model.display_name) continue;
+    // 对外 id 与官方客户端一致：display_name 去空白；上游请求仍用 model.key
+    // （放 routing.upstreamKey，invoke 里优先读它）。旧实现直接拿 key 当 id，
+    // 界面显示 qfmodel/qmodel 这类内部名，和客户端对不上（#179）。
+    const id = String(model.display_name).replace(/\s+/g, "").trim();
+    if (!id || models.has(id.toLowerCase())) continue;
     const tiers = model.context_config && typeof model.context_config === "object" ? Object.values(model.context_config) : [];
     const contextLength = tiers.reduce((max, tier) => Math.max(max, Number(tier?.token_count) || 0), 0);
-    models.set(model.key, { id: String(model.key), name: String(model.display_name || model.key),
+    models.set(id.toLowerCase(), { id, name: String(model.display_name || id),
       rate: model.price_factor == null ? null : Number(model.price_factor),
       capabilities: { reasoning: !!model.is_reasoning, tools: true, images: !!model.is_vl },
-      contextLength: contextLength || Number(model.max_input_tokens) || 0, maxOutputTokens: 0 });
+      contextLength: contextLength || Number(model.max_input_tokens) || 0, maxOutputTokens: 32768,
+      routing: { upstreamKey: String(model.key) } });
   }
   return [...models.values()];
 }
@@ -288,9 +309,9 @@ function createQoder(product, settings = {}, signerApi = signer) {
         finally { try { session.free?.(); } catch {} }
       }
       const models = (context.models || []).map(descriptor);
-      if (!models.length && product === "qoder") return STATIC_CN_MODELS.map(id => ({ id }));
+      if (!models.length && product === "qoder") return STATIC_CN_MODELS.map(row => ({ ...row, capabilities: { ...row.capabilities }, routing: { ...row.routing } }));
       // 千问办公：尚未刷新目录时 context.models 为空 → 用静态三条兜底，保证开箱可用。
-      if (!models.length && defaults.cosy) return STATIC_QWENWORK_MODELS.map(row => ({ ...row, capabilities: { tools: true } }));
+      if (!models.length && defaults.cosy) return STATIC_QWENWORK_MODELS.map(row => ({ ...row, capabilities: { ...row.capabilities, tools: true }, routing: { ...row.routing } }));
       return models;
     },
     async *invoke(request, ctx) {
@@ -316,7 +337,7 @@ function createQoder(product, settings = {}, signerApi = signer) {
         // 千问办公的目录 id 是展示名（去空白），上游要的是 key；目录条目把它放在
         // routing.upstreamKey。旧目录/静态清单没有 routing 时按静态三条的 id/name 反查。
         const staticRow = STATIC_QWENWORK_MODELS.find(row => row.id === modelId || row.name === request.model);
-        const upstreamKey = String(model.routing?.upstreamKey || staticRow?.id || modelId);
+        const upstreamKey = String(model.routing?.upstreamKey || staticRow?.routing?.upstreamKey || staticRow?.id || modelId);
         const reqId = crypto.randomUUID();
         // 千问办公的请求体多三项（依据 Agent2Providers qoder/endpoints.rs）：
         //   session_type 必须与 Cosy-ClientType 一致（body 说 qodercli、头说 6 会被直接拒），

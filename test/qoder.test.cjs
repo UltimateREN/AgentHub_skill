@@ -59,7 +59,8 @@ async function run() {
       credentials: async () => ({ token: "session" }),
     } });
     assert.deepEqual(decrypted, { blob: "encrypted-catalog", uid: "uid-catalog" });
-    assert.deepEqual(catalog.map(model => model.id), ["qmodel"]);
+    assert.deepEqual(catalog.map(model => model.id), ["QModel"], "catalog id follows the official display name (whitespace removed)");
+    assert.equal(catalog[0].routing.upstreamKey, "qmodel", "upstream key stays private routing");
     assert.equal(catalog[0].contextLength, 32000);
     assert.equal(catalog[0].capabilities.images, true);
     assert.equal(catalogReleased, 1);
@@ -111,8 +112,9 @@ async function run() {
   assert.equal(JSON.parse(intlRequest.init.body).session_type, "qoder_work");
   // 目录为空时用静态三条兜底（千问办公没有本机 catalog-v6）
   const qwenCatalog = await qwen.listModels({ grantId: "grant" }, { pool: { context: async () => ({ uid: "u", models: [] }), credentials: async () => ({ token: "t" }) } });
-  assert.deepEqual(qwenCatalog.map(model => model.id), ["pro", "flash", "qwen3.8-max-preview"]);
+  assert.deepEqual(qwenCatalog.map(model => model.id), ["高级", "标准", "Qwen3.8-Max"]);
   assert.equal(qwenCatalog[0].name, "高级");
+  assert.equal(qwenCatalog[0].routing.upstreamKey, "pro", "static fallback keeps the upstream key");
   // 强制刷新：千问办公没有本机目录 → 明确报错而不是静默返回空
   await assert.rejects(qwen.listModels({ grantId: "grant", force: true }, { pool: { context: async () => ({ uid: "u", models: [] }), credentials: async () => ({ token: "t" }) } }));
   console.log("PASS Qoder plugin signer lifecycle, scoped identity, OpenAI payload, stream usage/finish and QwenWork site matrix");
