@@ -104,8 +104,8 @@ async function main() {
   assert.deepEqual(astEvents.find((e) => e.type === "usage").usage, { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 });
 
   // ===== 豆包工作：命名事件 SSE =====
-  assert.equal(doubao.buildPrompt([{ role: "user", content: "hi" }]), "hi");
-  const payload = doubao.buildPayload("bot-1", "m1", "hello");
+  assert.equal(doubao.buildPlainPrompt([{ role: "user", content: "hi" }]), "hi");
+  const payload = doubao.buildPayload("bot-1", "m1", "hello", []);
   assert.equal(payload.client_meta.bot_id, "bot-1");
   assert.equal(payload.messages[0].content_block[0].content.text_block.text, "hello");
   assert.equal(payload.option.need_create_conversation, true);
