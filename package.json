@@ -1,10 +1,10 @@
 {
   "name": "agenthub-forwarding-plugin",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": false,
   "license": "SEE LICENSE IN LICENSE",
   "type": "commonjs",
-  "description": "独立模型反代执行插件，账号管理由 AgentHub 原号池提供",
+  "description": "独立模型增强执行插件，账号管理由 AgentHub 原号池提供",
   "main": "src/main.cjs",
   "engines": {
     "node": ">=22"

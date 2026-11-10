@@ -1,4 +1,4 @@
-# AgentHub 反代执行插件
+# AgentHub 增强执行插件
 
 AgentHub 本体保留号池管家、本地网关和七项账号管理（登录、凭据解析、续期、余额、签到、领取、客户端切号）。渠道的模型执行搬到这个独立进程里，通过 stdin/stdout JSON-RPC 与宿主通信。
 
@@ -118,7 +118,7 @@ node tools/push.cjs
 
 `tools/push.cjs` 只从 gh 里取 UltimateREN 的 token，推完即弃，不写全局配置。
 
-主程序 `AgentHub` 用的是另一个账号（HUIdada1），两边的凭据和提交记录互不影响。不要把主程序的 GCM 凭据套到这里，也不要用 HUIdada1 提交这个仓库。
+本仓库的凭据与提交记录独立于任何其它项目，不要套用别处的 GCM 凭据。
 
 ## 运行
 

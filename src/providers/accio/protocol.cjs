@@ -1,14 +1,14 @@
 /**
  * ============================================================
- *  作者：沐晖
+ *  作者：UltimateREN
  *  日期：2026-10-21
- *  版权声明：本代码归沐晖所有。
+ *  版权声明：本代码归 UltimateREN 所有。
  *    · 禁止滥用本人代码（含用于违法违规、恶意攻击、侵犯他人权益等用途）；
  *    · 禁止在未经本人授权的情况下直接搬运本代码（含复制、转载、用于商业项目）。
  *    此注释为版权与授权声明，禁止删除。
  * ============================================================
  */
-// 反代网关 · Accio 协议转换：OpenAI Chat Completions ↔ 阿里 ADK 的 Gemini 风格信封
+// 增强网关 · Accio 协议转换：OpenAI Chat Completions ↔ 阿里 ADK 的 Gemini 风格信封
 //
 // 上游（POST {llmBase}/generateContent，body 是 protobuf-JSON 的 snake_case 形态）：
 //   { model, tenant, iai_tag, empid, request_id, message_id, token, contents, system_instruction,

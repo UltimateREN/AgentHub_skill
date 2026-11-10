@@ -1,8 +1,8 @@
 "use strict";
 // 用 UltimateREN 的身份推送本仓库。
 //
-// 主程序的 HUIdada1 凭据不参与这里：脚本只从 gh 里读 UltimateREN 的 token，
-// 拼成一次性 URL 推完就丢。两边账号互不影响，也不需要改全局 git 配置。
+// 本仓库的凭据与其它项目完全隔离：脚本只从 gh 里读 UltimateREN 的 token，
+// 拼成一次性 URL 推完就丢。不借用任何外部凭据，也不需要改全局 git 配置。
 //
 // 用法：node tools/push.cjs [branch] [--tags]
 const { execFileSync, spawnSync } = require("node:child_process");
