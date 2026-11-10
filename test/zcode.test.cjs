@@ -77,6 +77,44 @@ async function main() {
   const partialEvents = [];
   await assert.rejects(async () => { for await (const item of partial.invoke({ model: "GLM-5.3", input: { messages: [{ role: "user", content: "x" }] } }, partialCtx)) partialEvents.push(item); }, error => error.category === "quota");
   assert.equal(partialCalls, 1, "never replay a request after visible output");
-  console.log("PASS ZCode plugin dual credentials, upstream override, Anthropic tools/usage, quota fallback and no replay after visible output");
+
+  // 国际版：双区参数化验证——provider 默认 zai、无 bigmodel 并存推理平面、base 切到 api.z.ai
+  const intl = createZcode({}, "zcode_intl");
+  assert.equal(intl.id, "zcode_intl");
+  assert.deepEqual(intl.channels, ["zcode_intl"]);
+  const intlSeen = [];
+  const intlCtx = {
+    signal: new AbortController().signal,
+    pool: {
+      credentials: async () => ({ token: "intl-jwt", modelApiKey: "intl-key.secret" }),
+      context: async () => ({ identity: { provider: "", deviceMid: "dev" }, models: [{ id: "glm-5.3" }] }),
+      network: () => ({ fetch: async (url, init) => {
+        intlSeen.push({ url, init });
+        return new Response([event("message_start", { message: { usage: { input_tokens: 1 } } }),
+          event("content_block_start", { index: 0, content_block: { type: "text", text: "" } }),
+          event("content_block_delta", { index: 0, delta: { type: "text_delta", text: "intl" } }),
+          event("message_delta", { delta: { stop_reason: "end_turn" }, usage: { input_tokens: 1, output_tokens: 2 } }),
+          event("message_stop", {})].join(""), { headers: { "content-type": "text/event-stream" } });
+      } }),
+    },
+  };
+  const intlEvents = [];
+  for await (const item of intl.invoke({ model: "glm-5.3", input: { messages: [{ role: "user", content: "hi" }] } }, intlCtx)) intlEvents.push(item);
+  assert.equal(intlSeen.length, 1, "intl coding-plan succeeds on first try");
+  assert.equal(intlSeen[0].url, "https://api.z.ai/api/anthropic/v1/messages", "intl coding-plan goes to api.z.ai (zai), never open.bigmodel.cn");
+  assert.equal(intlSeen[0].init.headers["x-api-key"], "intl-key.secret");
+  // INTL 无 bigmodel 并存推理平面：即使 context.identity.provider 误传 bigmodel，也回落 zai
+  const intlBmSeen = [];
+  const intlBmCtx = {
+    signal: new AbortController().signal,
+    pool: {
+      credentials: async () => ({ token: "", modelApiKey: "k.s" }),
+      context: async () => ({ identity: { provider: "bigmodel", deviceMid: "dev" }, models: [] }),
+      network: () => ({ fetch: async (url) => { intlBmSeen.push(url); return new Response([event("content_block_delta", { index: 0, delta: { type: "text_delta", text: "x" } }), event("message_delta", { delta: { stop_reason: "end_turn" }, usage: {} }), event("message_stop", {})].join(""), { headers: { "content-type": "text/event-stream" } }); } }),
+    },
+  };
+  for await (const item of intl.invoke({ model: "glm-5.3", input: { messages: [{ role: "user", content: "hi" }] } }, intlBmCtx)) { if (item.type === "finish") break; }
+  assert.ok(intlBmSeen[0].startsWith("https://api.z.ai/"), "intl never routes to open.bigmodel.cn even if provider=bigmodel");
+  console.log("PASS ZCode plugin dual credentials, upstream override, Anthropic tools/usage, quota fallback, no replay after visible output, and INTL region");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

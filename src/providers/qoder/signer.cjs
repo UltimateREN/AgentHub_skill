@@ -59,9 +59,15 @@ function installResources(product) {
   return install.findResources(product) || "";
 }
 
+/** 千问办公没有独立客户端安装目录（未取证）：签名 wasm 从**同族 Qoder 客户端**提取。
+ *  依据：Agent2Providers qoder/endpoints.rs 模块头写明千问办公与 Qoder 共用同一套
+ *  COSY 信封与同一把服务端 RSA 公钥，签名算法逐字相同；差异只在客户端身份常量
+ *  （由 provider.cjs 在签名后覆盖那几个 Cosy-* 头）。 */
+const INSTALL_FALLBACK = { qwen_office: "qoder", qwen_office_intl: "qoder_intl" };
+
 /** 定位 worker obf 与客户端版本 */
 function locate(product) {
-  const res = install.findResources(product);
+  const res = install.findResources(product) || (INSTALL_FALLBACK[product] ? install.findResources(INSTALL_FALLBACK[product]) : null);
   if (!res) return null;
   // SDK 目录名按版本而异（实测 0.3.3 国际版 = qoder-agent-sdk；0.4.x CN = qoder-cn-agent-sdk）——
   // 两个都试，命中即用，不按产品名硬编码

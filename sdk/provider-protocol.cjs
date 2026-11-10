@@ -5,6 +5,23 @@ const PROTOCOL = 1;
 // finite invocation support but cannot silently accept different deadline rules.
 const FEATURES = Object.freeze(["unbounded-deadline@1", "scoped-grant-rotation@1", "attempt-reservation@1", "explicit-retry-policy@1", "execution-facts@1", "request-headers@1", "state-scope@1", "account-execution-epoch@1"]);
 const EVENT_METHOD = "provider.event";
+
+/** 管理层方法：宿主 → 插件的账号侧能力（额度 / 签到 / 领取 / 登录 / 账号规范化）。
+ *  与执行面（listModels / invoke）分开命名，旧插件不认识这些方法时按 NO_METHOD 回绝即可。 */
+const MANAGEMENT_METHODS = Object.freeze([
+  "models.refresh",
+  "usage.query",
+  "checkin.claim",
+  "claim",
+  "claim.status",
+  "login.start",
+  "login.poll",
+  "login.cancel",
+  "account.view",
+  "account.identity",
+  "account.normalize",
+  "admin.action",
+]);
 const LIMITS = Object.freeze({ frameBytes: 16 * 1024 * 1024, eventBytes: 64 * 1024, windowBytes: 512 * 1024, queueBytes: 16 * 1024 * 1024, concurrent: 32 });
 const categories = new Set(["auth", "rate", "quota", "account", "model", "network", "upstream", "cancelled", "protocol"]);
 const scopes = new Set(["invocation", "account", "account-model", "service"]);
@@ -96,4 +113,4 @@ function publicError(error) {
   return { code: error?.name === "AbortError" ? "CANCELLED" : "UPSTREAM_FAILED", message: error?.name === "AbortError" ? "模型调用已取消" : "插件模型调用失败，请查看脱敏诊断", category: error?.name === "AbortError" ? "cancelled" : "upstream", scope: "invocation", replay: "unknown" };
 }
 function forwardError(fields) { validateError(fields); return failure(fields.code, fields.message, { ...fields, forwardError: fields }); }
-module.exports = { PROTOCOL, FEATURES, EVENT_METHOD, LIMITS, failure, object, identifier, integer, validateStateScope, validateAccountExecutionEpoch, requestHeaderName, validateRequestHeaders, assert, jsonValue, terminal, hasContent, validateError, validateExecutionFacts, validateEvent, eventBytes, publicError, forwardError };
+module.exports = { PROTOCOL, FEATURES, EVENT_METHOD, MANAGEMENT_METHODS, LIMITS, failure, object, identifier, integer, validateStateScope, validateAccountExecutionEpoch, requestHeaderName, validateRequestHeaders, assert, jsonValue, terminal, hasContent, validateError, validateExecutionFacts, validateEvent, eventBytes, publicError, forwardError };

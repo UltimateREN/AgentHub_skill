@@ -93,6 +93,32 @@ async function main() {
   await assert.rejects(provider.listModels({ grantId: "grant", force: true }, emptyCatalog), error => error.code === "EMPTY_CATALOG");
   const unauthorizedCatalog = ctx({ upstream: response(401, "application/json", ["unauthorized"]) });
   await assert.rejects(provider.listModels({ grantId: "grant", force: true }, unauthorizedCatalog), error => error.code === "AUTH_REQUIRED");
-  console.log("PASS ModelScope plugin provider: model IDs, token limits, usage, SSE/JSON, actionable account gates and empty-response guard");
+  // ===== 国际版（modelscope_intl）=====
+  // 两站账号体系独立、推理基址不同（依据 Agent2Providers modelscope/region.rs）：
+  // 没传 settings.base 时必须落到 .ai 域，而不是 CN 的 .cn。
+  const intl = createModelScope({}, "modelscope_intl");
+  assert.equal(intl.id, "modelscope_intl");
+  assert.deepEqual(intl.channels, ["modelscope_intl"]);
+  const intlCtx = ctx({ upstream: response(200, "text/event-stream", [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })}\n\n`,
+    "data: [DONE]\n\n",
+  ]) });
+  await collect(intl, { model: "Qwen/Qwen3-Coder", input: { messages: [{ role: "user", content: "hi" }], stream: true } }, intlCtx);
+  assert.equal(intlCtx.calls[0].url, "https://api-inference.modelscope.ai/v1/chat/completions", "INTL must not hit the CN inference host");
+  // CN 仍走 .cn（回归保护：别把双站改成一律 INTL）
+  const cn = createModelScope({});
+  assert.equal(cn.id, "modelscope");
+  const cnCtx = ctx({ upstream: response(200, "text/event-stream", [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })}\n\n`,
+    "data: [DONE]\n\n",
+  ]) });
+  await collect(cn, { model: "Qwen/Qwen3-Coder", input: { messages: [{ role: "user", content: "hi" }], stream: true } }, cnCtx);
+  assert.equal(cnCtx.calls[0].url, "https://api-inference.modelscope.cn/v1/chat/completions");
+  // settings.base 仍是最高优先（私有网关/自建代理）
+  const proxied = createModelScope({ base: "https://model.test/v1" }, "modelscope_intl");
+  const proxiedCtx = ctx({ upstream: response(200, "application/json", [JSON.stringify({ choices: [{ message: { content: "x" }, finish_reason: "stop" }] })]) });
+  await collect(proxied, { model: "m", input: {} }, proxiedCtx);
+  assert.equal(proxiedCtx.calls[0].url, "https://model.test/v1/chat/completions");
+  console.log("PASS ModelScope plugin provider: model IDs, token limits, usage, SSE/JSON, actionable account gates, empty-response guard and CN/INTL region split");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

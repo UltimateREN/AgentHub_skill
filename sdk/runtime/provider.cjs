@@ -19,6 +19,22 @@ function waitAbort(promise, signal) {
   });
 }
 
+/** 管理层方法 → provider 上的钩子名（与 protocol.MANAGEMENT_METHODS 一一对应） */
+const MANAGEMENT_HOOKS = Object.freeze({
+  "models.refresh": "refreshModels",
+  "usage.query": "queryUsage",
+  "checkin.claim": "checkin",
+  "claim": "claim",
+  "claim.status": "claimStatus",
+  "login.start": "loginStart",
+  "login.poll": "loginPoll",
+  "login.cancel": "loginCancel",
+  "account.view": "accountView",
+  "account.identity": "accountIdentity",
+  "account.normalize": "accountNormalize",
+  "admin.action": "adminAction",
+});
+
 class ProviderRuntime {
   constructor({ peer, providers, maxConcurrent = LIMITS.concurrent, maxWindowBytes = LIMITS.windowBytes, maxEventBytes = LIMITS.eventBytes }) {
     assert(peer && Array.isArray(providers) && providers.length > 0, "Provider runtime requires providers");
@@ -38,6 +54,7 @@ class ProviderRuntime {
     peer.handle("cancel", params => this.cancel(params));
     peer.handle("provider.prepareGrant", (params, ctx) => this.prepareGrant(params, ctx.signal));
     peer.handle("provider.commitGrant", params => this.commitGrant(params));
+    peer.handle("provider.manage", (params, ctx) => this.manage(params, ctx));
     peer.handleNotification("provider.credit", params => this.credit(params));
     peer.handle("status", () => ({ ready: this.initialized && !this.closing, active: this.active.size }));
     peer.handle("shutdown", async () => {
@@ -49,6 +66,20 @@ class ProviderRuntime {
       this.closing = true;
       for (const record of this.active.values()) this.abort(record);
     });
+  }
+
+  /** 管理层调用：按 method 找到 provider 上的同名钩子；没实现就明确回「不支持」，不假装成功。 */
+  manage(params, ctx) {
+    assert(this.initialized && !this.closing, "Provider runtime unavailable");
+    const providerId = params && params.providerId;
+    const channel = params && params.channel;
+    const method = params && params.method;
+    const provider = this.providers.get(providerId);
+    assert(provider && provider.channels.includes(channel), "Unknown provider or channel");
+    const hook = MANAGEMENT_HOOKS[method];
+    assert(hook, "Unknown management method");
+    if (typeof provider[hook] !== "function") return { supported: false, message: `${providerId} 未实现 ${method}` };
+    return Promise.resolve(provider[hook]({ channel, payload: params.payload || {}, ctx })).then(result => ({ supported: true, result }));
   }
 
   initialize(params) {

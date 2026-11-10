@@ -3,7 +3,7 @@
   "id": "com.agenthub.forwarding-suite",
   "name": "模型反代执行器",
   "publisher": "agenthub",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "host": { "api": ">=1.0.0 <2.0.0" },
   "transport": { "kind": "stdio-jsonrpc", "version": 1 },
   "runtime": {
@@ -31,6 +31,7 @@
     { "id": "accio_cn", "channels": ["accio_cn"], "catalogMode": "account" },
     { "id": "codearts", "channels": ["codearts"], "catalogMode": "account" },
     { "id": "modelscope", "channels": ["modelscope"], "catalogMode": "account" },
+    { "id": "modelscope_intl", "channels": ["modelscope_intl"], "catalogMode": "account" },
     { "id": "lobster", "channels": ["lobster"], "catalogMode": "account" },
     { "id": "catpaw", "channels": ["catpaw"], "catalogMode": "account", "requestHeaders": ["x-session-id"] },
     { "id": "monkeycode", "channels": ["monkeycode"], "catalogMode": "account" },
@@ -44,7 +45,18 @@
     { "id": "workbuddy", "channels": ["workbuddy", "workbuddy_ai"], "catalogMode": "account" },
     { "id": "qoder", "channels": ["qoder"], "catalogMode": "account" },
     { "id": "qoder_intl", "channels": ["qoder_intl"], "catalogMode": "account" },
-    { "id": "zcode", "channels": ["zcode"], "catalogMode": "account", "modelRefresh": false }
+    { "id": "qwen_office", "channels": ["qwen_office"], "catalogMode": "account" },
+    { "id": "qwen_office_intl", "channels": ["qwen_office_intl"], "catalogMode": "account" },
+    { "id": "commandcode", "channels": ["commandcode"], "catalogMode": "account", "requestHeaders": ["x-session-id", "x-claude-code-session-id"] },
+    { "id": "officeace", "channels": ["officeace"], "catalogMode": "account" },
+    { "id": "atomcode", "channels": ["atomcode"], "catalogMode": "account" },
+    { "id": "orcaterm", "channels": ["orcaterm"], "catalogMode": "account", "modelRefresh": false },
+    { "id": "astudio", "channels": ["astudio"], "catalogMode": "account" },
+    { "id": "doubaowork", "channels": ["doubaowork"], "catalogMode": "account" },
+    { "id": "kiro", "channels": ["kiro"], "catalogMode": "account", "modelRefresh": false },
+    { "id": "antigravity", "channels": ["antigravity"], "catalogMode": "account", "modelRefresh": false },
+    { "id": "zcode", "channels": ["zcode"], "catalogMode": "account", "modelRefresh": false },
+    { "id": "zcode_intl", "channels": ["zcode_intl"], "catalogMode": "account", "modelRefresh": false }
   ] },
   "dataSchema": 1
 }

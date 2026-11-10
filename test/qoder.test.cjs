@@ -68,6 +68,53 @@ async function run() {
     else process.env.USERPROFILE = oldProfile;
     fs.rmSync(temp, { recursive: true, force: true });
   }
-  console.log("PASS Qoder plugin signer lifecycle, scoped identity, OpenAI payload and stream usage/finish");
+  // ===== 千问办公双站（qwen_office / qwen_office_intl）=====
+  // 同一套协议栈、不同的客户端身份常量（Agent2Providers qoder/endpoints.rs）。
+  let qwenArgs, qwenRequest;
+  const qwenSigner = { async createSession(args) { qwenArgs = args; return {
+    prepareInferRequest(url, body, model) {
+      return { url: `${url}/algo/api/v2/service/pro/sse/agent_chat_generation`, headers: {
+        "Cosy-Version": "1.1.38", "Cosy-ClientType": "5", "Cosy-Data-Policy": "disagree", "Cosy-Signature": "sig",
+      }, body };
+    },
+    free() {} }; } };
+  const qwen = createQoder("qwen_office", {}, qwenSigner);
+  const qwenCtx = { signal: new AbortController().signal, pool: {
+    credentials: async () => ({ token: "dt-token" }),
+    context: async () => ({ uid: "u-qw", identity: { machineId: "mid" }, models: [{ id: "pro", name: "高级" }] }),
+    network: () => ({ fetch: async (url, init) => { qwenRequest = { url, init }; return response([{ statusCode: "OK", body: JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }) }]); } }),
+  } };
+  for await (const _ of qwen.invoke({ model: "pro", input: { messages: [{ role: "user", content: "hi" }] } }, qwenCtx));
+  assert.equal(qwenArgs.product, "qwen_office");
+  assert.ok(qwenRequest.url.startsWith("https://gateway.qwenwork.cn"), "QwenWork CN must hit its own gateway");
+  const qwenBody = JSON.parse(qwenRequest.init.body);
+  assert.equal(qwenBody.session_type, "qoder_work", "body session_type must match Cosy-ClientType 6");
+  assert.deepEqual(qwenBody.business, { product: "qoder_work", version: "1.1.52" });
+  assert.equal(qwenBody.model_config.key, "pro");
+  assert.equal(qwenBody.model_config.max_input_tokens, 1024000);
+  // 签名后被覆盖成千问办公的身份头（Qoder 客户端的 wasm 产出的是 5 / disagree）
+  assert.equal(qwenRequest.init.headers["Cosy-ClientType"], "6");
+  assert.equal(qwenRequest.init.headers["Cosy-Data-Policy"], "agree");
+  assert.equal(qwenRequest.init.headers["Cosy-Scene"], "qwork");
+  assert.equal(qwenRequest.init.headers["Cosy-Business-Product"], "qoder_work");
+  assert.equal(qwenRequest.init.headers["Cosy-Business-Type"], "agent");
+  assert.equal(qwenRequest.init.headers["Cosy-Version"], "1.1.52");
+  assert.equal(qwenRequest.init.headers["User-Agent"], "qoderwork/1.1.0");
+  assert.equal(qwenRequest.init.headers["Cosy-Signature"], undefined, "Qoder-only identity headers are replaced, not merged");
+  // 国际版主机不同、常量沿用国内版（推断）
+  const qwenIntl = createQoder("qwen_office_intl", {}, qwenSigner);
+  let intlRequest;
+  const intlCtx = { ...qwenCtx, pool: { ...qwenCtx.pool, network: () => ({ fetch: async (url, init) => { intlRequest = { url, init };
+    return response([{ statusCode: "OK", body: JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }) }]); } }) } };
+  for await (const _ of qwenIntl.invoke({ model: "pro", input: { messages: [{ role: "user", content: "hi" }] } }, intlCtx));
+  assert.ok(intlRequest.url.startsWith("https://gateway.qwenwork.ai/"), "QwenWork INTL must hit the .ai gateway");
+  assert.equal(JSON.parse(intlRequest.init.body).session_type, "qoder_work");
+  // 目录为空时用静态三条兜底（千问办公没有本机 catalog-v6）
+  const qwenCatalog = await qwen.listModels({ grantId: "grant" }, { pool: { context: async () => ({ uid: "u", models: [] }), credentials: async () => ({ token: "t" }) } });
+  assert.deepEqual(qwenCatalog.map(model => model.id), ["pro", "flash", "qwen3.8-max-preview"]);
+  assert.equal(qwenCatalog[0].name, "高级");
+  // 强制刷新：千问办公没有本机目录 → 明确报错而不是静默返回空
+  await assert.rejects(qwen.listModels({ grantId: "grant", force: true }, { pool: { context: async () => ({ uid: "u", models: [] }), credentials: async () => ({ token: "t" }) } }));
+  console.log("PASS Qoder plugin signer lifecycle, scoped identity, OpenAI payload, stream usage/finish and QwenWork site matrix");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

@@ -12,6 +12,14 @@ const DEFAULTS = Object.freeze({
   startPlanAnthropicBase: "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
   appVersion: "4.1.10", platform: "win32-x64", sourceTitle: "cli", billingBase: "https://zcode.z.ai/api/v1/zcode-plan",
 });
+// 国际版与 CN 同一份 zcode 控制面（zcode.z.ai），仅推理平面与账号体系分地区。
+// 依据 Agent2Providers zcode/region.rs：INTL 推理平面只有 api.z.ai 一路（无 bigmodel 并存域）。
+const INTL_DEFAULTS = Object.freeze({
+  zaiAnthropicBase: "https://api.z.ai/api/anthropic",
+  bigmodelAnthropicBase: "", // 国际版无 bigmodel 并存推理平面
+  startPlanAnthropicBase: "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
+  appVersion: "4.1.10", platform: "win32-x64", sourceTitle: "cli", billingBase: "https://zcode.z.ai/api/v1/zcode-plan",
+});
 
 /**
  * ZCode 的模型清单（静态表，两地共用）。
@@ -72,15 +80,16 @@ function validBase(value, fallback) {
   if (!(["https:", "http:"].includes(url.protocol)) || url.username || url.password || url.search || url.hash) throw new TypeError("Invalid ZCode upstream URL");
   return raw;
 }
-function createZcode(settings = {}) {
-  const cfg = { ...DEFAULTS, ...settings };
+function createZcode(settings = {}, channel = "zcode") {
+  const isIntl = channel === "zcode_intl";
+  const cfg = { ...(isIntl ? INTL_DEFAULTS : DEFAULTS), ...settings };
   const bases = {
-    zai: validBase(cfg.zaiAnthropicBase, DEFAULTS.zaiAnthropicBase),
-    bigmodel: validBase(cfg.bigmodelAnthropicBase, DEFAULTS.bigmodelAnthropicBase),
-    start: validBase(cfg.startPlanAnthropicBase, DEFAULTS.startPlanAnthropicBase),
+    zai: validBase(cfg.zaiAnthropicBase, (isIntl ? INTL_DEFAULTS : DEFAULTS).zaiAnthropicBase),
+    bigmodel: cfg.bigmodelAnthropicBase ? validBase(cfg.bigmodelAnthropicBase, (isIntl ? INTL_DEFAULTS : DEFAULTS).bigmodelAnthropicBase) : null,
+    start: validBase(cfg.startPlanAnthropicBase, (isIntl ? INTL_DEFAULTS : DEFAULTS).startPlanAnthropicBase),
   };
   return {
-    id: "zcode", channels: ["zcode"],
+    id: channel, channels: [channel],
     async listModels(request, ctx) {
       const context = request.grantId ? await ctx.pool.context() : {};
       // 上游没有「列模型」接口：账号快照里有就用快照（它来自登录时的客户端目录），
@@ -104,8 +113,11 @@ function createZcode(settings = {}) {
       let finalError;
       for (let planIndex = 0; planIndex < plans.length; planIndex++) {
         const plan = plans[planIndex];
+        // provider 由账号上下文（identity.provider）决定，缺省 zai（与既有 CN 行为一致）；
+        // INTL 无 bigmodel 并存推理平面，provider=bigmodel 且无 bigmodel base 时回落 zai。
         const provider = String(context.identity?.provider || "zai");
-        const base = plan === "start-plan" ? bases.start : provider === "bigmodel" ? bases.bigmodel : bases.zai;
+        let base = plan === "start-plan" ? bases.start : provider === "bigmodel" && bases.bigmodel ? bases.bigmodel : bases.zai;
+        if (!base) base = bases.zai;
         const payload = anthropic.toAnthropic(model, request.input || {}, { defaultMaxTokens: entry.maxOutputTokens });
         if (plan === "start-plan") payload.system = officialSystem.injectOfficialZcodeSystem(payload.system);
         payload.metadata = { user_id: JSON.stringify({ device_id: deviceMid || undefined, account_uuid: "", session_id: sessionId }) };

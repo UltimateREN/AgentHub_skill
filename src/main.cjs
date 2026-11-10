@@ -17,6 +17,14 @@ const { createRaccoon } = require("./providers/raccoon/provider.cjs");
 const { createWorkBuddy } = require("./providers/workbuddy/provider.cjs");
 const { createQoder } = require("./providers/qoder/provider.cjs");
 const { createZcode } = require("./providers/zcode/provider.cjs");
+const { createCommandCode } = require("./providers/commandcode/provider.cjs");
+const { createOfficeAce } = require("./providers/officeace/provider.cjs");
+const { createAtomCode } = require("./providers/atomcode/provider.cjs");
+const { createOrcaTerm } = require("./providers/orcaterm/provider.cjs");
+const { createAStudio } = require("./providers/astudio/provider.cjs");
+const { createDoubaoWork } = require("./providers/doubaowork/provider.cjs");
+const { createKiro } = require("./providers/kiro/provider.cjs");
+const { createAntigravity } = require("./providers/antigravity/provider.cjs");
 
 function settings() {
   const directory = process.env.AGENTHUB_PLUGIN_DATA_DIR;
@@ -40,6 +48,15 @@ runStdio({ providers: [createLoomy(config.loomy || {}),
   createCatPaw(config.catpaw || {}), createMonkeyCode("monkeycode", config.monkeycode || {}),
   createMonkeyCode("monkeycode_intl", config.monkeycode_intl || {}), createKuku(config.kuku || {}),
   createAccio("accio", config.accio || {}), createAccio("accio_cn", config.accio_cn || {}),
-  createCodeArts(config.codearts || {}), createModelScope(config.modelscope || {}), createLobster(config.lobster || {}),
+  createCodeArts(config.codearts || {}), createModelScope(config.modelscope || {}),
+  createModelScope(config.modelscope_intl || {}, "modelscope_intl"), createLobster(config.lobster || {}),
   createWorkBuddy(config.workbuddy || {}), createQoder("qoder", config.qoder || {}),
-  createQoder("qoder_intl", config.qoder_intl || {}), createZcode(config.zcode || {})] });
+  createQoder("qoder_intl", config.qoder_intl || {}),
+  createQoder("qwen_office", config.qwen_office || {}),
+  createQoder("qwen_office_intl", config.qwen_office_intl || {}),
+  createCommandCode(config.commandcode || {}), createOfficeAce(config.officeace || {}),
+  createAtomCode(config.atomcode || {}), createOrcaTerm(config.orcaterm || {}),
+  createAStudio(config.astudio || {}), createDoubaoWork(config.doubaowork || {}),
+  createKiro(config.kiro || {}), createAntigravity(config.antigravity || {}),
+  createZcode(config.zcode || {}),
+  createZcode(config.zcode_intl || {}, "zcode_intl")] });
