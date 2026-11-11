@@ -31,6 +31,7 @@ const request = require("./request.cjs");
 const endpoints = require("./endpoints.cjs");
 const models = require("./models.cjs");
 const session = require("./session.cjs");
+const diagnostics = require("../../diagnostics.cjs");
 
 const FALLBACK_PROMPT = "你好";
 
@@ -228,8 +229,14 @@ async function runChat(ctx) {
 
   const triple = await session.ensureTriple(cred, deps, false);
   const created = await createSession(deps, cred, triple, prompt, model);
-  await allocate(deps, cred).catch(() => {});
-  await switchSession(deps, cred, created.sessionId).catch(() => {});
+  // allocate / switchSession 是尽力而为的预处理：失败不挡对话（chatStream 的错误会如实上报），
+  // 但失败无痕会让「明明分配失败还继续打」无从排查，这里补一条只含元数据的诊断。
+  await allocate(deps, cred).catch((error) => {
+    diagnostics.warn("kuku", `allocate failed: status=${Number(error && error.status) || 0} code=${String(error && error.code || "")}`);
+  });
+  await switchSession(deps, cred, created.sessionId).catch((error) => {
+    diagnostics.warn("kuku", `switchSession failed: status=${Number(error && error.status) || 0} code=${String(error && error.code || "")}`);
+  });
 
   const query = `${endpoints.WEB_QUERY}${session.tokenQuery(triple)}`;
   const url = `${endpoints.baseUrl()}${endpoints.PATHS.chatStream}?${query}`;

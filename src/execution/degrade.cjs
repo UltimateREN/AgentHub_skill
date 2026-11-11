@@ -35,8 +35,10 @@
 // 会把降级期无限推后，等于永久降级。
 //
 // ── 接入点 ─────────────────────────────────────────────────
-//   · forwarder.forward()：发送前问 `applyPrompt`（要换就换）、撞内容拦截后问
-//     `trigger()` + 用 `neutralPrompt()` 重发一次；
+//   · src/execution/content-remediation.cjs 的 withContentRemediation()：首次尝试前问
+//     `active()`（降级中直接用 `NEUTRAL_PROMPT` 换掉 system）；
+//     撞上内容拦截（未产出内容 + replay safe + 400/403/451 + `isContentBlock`）后调
+//     `trigger()` 并用 `neutralize(input)` 同链路重发一次；
 //   · 没有「撤销」按钮：aligned 官方案例没有（重启即恢复），保持语义一致。
 "use strict";
 
