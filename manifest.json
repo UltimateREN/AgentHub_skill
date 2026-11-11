@@ -3,7 +3,7 @@
   "id": "com.agenthub.forwarding-suite",
   "name": "模型增强执行器",
   "publisher": "agenthub",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "host": { "api": ">=1.0.0 <2.0.0" },
   "transport": { "kind": "stdio-jsonrpc", "version": 1 },
   "runtime": {
