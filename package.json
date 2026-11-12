@@ -1,6 +1,6 @@
 {
   "name": "agenthub-forwarding-plugin",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": false,
   "license": "SEE LICENSE IN LICENSE",
   "type": "commonjs",
@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node test/network.test.cjs && node test/accio.test.cjs && node test/trae.test.cjs && node test/raccoon.test.cjs && node test/workbuddy.test.cjs && node test/loomy.test.cjs && node test/content-remediation.test.cjs && node test/loomy-budget.test.cjs && node test/cline.test.cjs && node test/autoclaw.test.cjs && node test/catpaw-state.test.cjs && node test/catpaw-image.test.cjs && node test/catpaw.test.cjs && node test/monkeycode.test.cjs && node test/kuku.test.cjs && node test/codearts.test.cjs && node test/modelscope.test.cjs && node test/lobster.test.cjs && node test/qoder.test.cjs && node test/commandcode.test.cjs && node test/officeace.test.cjs && node test/atomcode.test.cjs && node test/session-channels.test.cjs && node test/binary-channels.test.cjs && node test/zcode.test.cjs",
+    "test": "node test/network.test.cjs && node test/accio.test.cjs && node test/trae.test.cjs && node test/raccoon.test.cjs && node test/workbuddy.test.cjs && node test/loomy.test.cjs && node test/content-remediation.test.cjs && node test/loomy-budget.test.cjs && node test/cline.test.cjs && node test/autoclaw.test.cjs && node test/catpaw-state.test.cjs && node test/catpaw-image.test.cjs && node test/catpaw.test.cjs && node test/monkeycode.test.cjs && node test/kuku.test.cjs && node test/codearts.test.cjs && node test/modelscope.test.cjs && node test/lobster.test.cjs && node test/qoder.test.cjs && node test/commandcode.test.cjs && node test/officeace.test.cjs && node test/atomcode.test.cjs && node test/session-channels.test.cjs && node test/binary-channels.test.cjs && node test/zcode.test.cjs && node test/minimax.test.cjs",
     "start": "node src/main.cjs",
     "package": "node tools/build-package.cjs"
   },
