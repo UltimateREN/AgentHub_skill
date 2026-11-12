@@ -59,50 +59,71 @@ ZCode 的目录由客户端决定，声明 `modelRefresh: false`。手动刷新�
 
 ## 发布与自动更新
 
-发布产物有两个文件，都放在同一个 GitHub Release 里：
+发布产物按**构建机平台**各出一份，都放在同一个 GitHub Release 里：
 
-- `<id>-<version>-<platform>.zip`：签名后的插件包
-- `plugin-index.json`：主程序用来判断版本、平台和下载地址的清单
+- `<id>-<version>-<platform>.zip`：签名后的插件包，`<platform>` 形如 `win32-x64`、`linux-x64-glibc`
+- `plugin-index-<platform>.json`：该平台自己的更新清单（url 指向同平台的 zip）
+- `plugin-index.json`：不带后缀的那份，**只由 win32/x64 构建写出**，是桌面版内置 feed 的既有地址
 
-本仓库没有 `build` 脚本（早期文档写错过），打包就是一步：
+为什么要按平台分：打包脚本会把 `node_modules` 里的**原生依赖**（`sharp`、`koffi` 的 `.node`）一起签进包，并把 `manifest.runtime.platforms` 裁成构建机那一个平台。所以 Windows 上构建出来的包在 Linux 容器里过不了宿主的平台校验（`electron/backend/extensions/manifest.cjs:146`），必须在 ubuntu runner 上再构建一次 —— 这是矩阵存在的理由，不是可选优化。
+
+为什么清单也要分文件、而不是「同一个 id 每个平台各写一条」：宿主的 `electron/backend/plugin-feed.cjs:58-62` 在**匹配平台之前**就用 `seen` 去重，同一个 id 只认第一条，排在前面的那条会把后面平台的条目**静默吞掉**（不报错、不更新）。这条约束由 `test/packaging-feed.test.cjs` 钉成回归，两个方向的顺序都验过。
+
+本地打包就是一步（本仓库没有 `build` 脚本，早期文档写错过；且要在目标平台上打，跨平台打出来的包平台声明会不合）：
 
 ```bash
 AGENTHUB_PLUGIN_SIGNING_KEY=.release/plugin-signing-key.pem npm run package
 ```
 
-`npm run package` 等于 `node tools/build-package.cjs dist`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库。
+`npm run package` 等于 `node tools/build-package.cjs dist`，需要环境变量 `AGENTHUB_PLUGIN_SIGNING_KEY` 指向 Ed25519 私钥。私钥只放发布机（`.release/` 已被忽略），不入库、不进日志；CI 里从 Secrets 落到 `.release/plugin-signing-key.pem`，**签完立刻 `rm -rf .release`**。
 
-推 `v*` tag 会触发 `.github/workflows/release-plugin.yml`：跑测试、签名、把 zip 和 `plugin-index.json` 传到同一个 Release。需要在仓库 Secrets 里配 `AGENTHUB_PLUGIN_SIGNING_KEY`，内容是私钥 PEM 全文。
+推 `v*` tag 会触发 `.github/workflows/release-plugin.yml`：`windows-latest` 与 `ubuntu-latest` 两条 leg 各自跑测试 + 签名 + 出包，产物汇到 `publish` job 一次性传到同一个 Release（并发直接传同一个 Release 会互相抢）。需要在仓库 Secrets 里配 `AGENTHUB_PLUGIN_SIGNING_KEY`，内容是私钥 PEM 全文。
 
-清单长这样：
+arm64（群晖 ARM NAS）目前**不出包**：打包脚本按构建机自报的 `process.platform/arch/libc` 裁剪平台声明，所以必须真跑在一台能报出 `linux/arm64` 的 runner 上才作数；本机和 GitHub 托管的 `ubuntu-latest` 都是 x64。将来加一行 matrix（指向 self-hosted 或官方 arm64 runner）即可，脚本无需改动。
+
+清单长这样（每个平台各一份文件，`platforms` 与 `url` 指的是同一个包）：
 
 ```json
 {
   "schema": 1,
   "plugins": [{
     "id": "com.agenthub.forwarding-suite",
-    "version": "1.0.0",
+    "version": "0.2.8",
     "minimumVersion": "",
     "minHostVersion": "",
-    "platforms": [{ "os": "win32", "arch": "x64" }],
-    "url": "https://github.com/UltimateREN/AgentHub_skill/releases/download/v1.0.0/....zip",
+    "platforms": [{ "os": "linux", "arch": "x64", "libc": "glibc" }],
+    "url": "https://github.com/UltimateREN/AgentHub_skill/releases/download/v0.2.8/com.agenthub.forwarding-suite-0.2.8-linux-x64-glibc.zip",
     "sha256": "..."
   }]
 }
 ```
 
-`minimumVersion` 留空表示不强制升级。填了之后，低于它的安装会被主程序强制补齐，不受「自动更新插件」开关影响 —— 这是最低版本兜底。
+`minimumVersion` 留空表示不强制升级。填了之后，低于它的安装会被主程序列为 required 强制补齐，不受「自动更新插件」开关影响 —— 这是最低版本兜底。
+
+**`minimumVersion` 的发布策略**（容器形态与桌面不同，务必按这条来）：
+
+- 默认**留空**。只有「旧版本会打错上游协议 / 会写坏数据」这类硬不兼容才填，加新渠道、改内部实现都不属于。
+- 容器里**没有桌面兜底**：被插件接管的渠道在宿主内没有进程内回退，插件挂了该渠道直接 503。所以强制升级窗口要更保守 —— 宁可在插件页手动升，也不要让一次 feed 改动把无人值守的服务器同时换掉执行引擎。
+- 值是 CI 仓库变量 `AGENTHUB_PLUGIN_MINIMUM_VERSION` 注入的（`Settings → Variables`），不改代码、不改 manifest 模板；`AGENTHUB_PLUGIN_MIN_HOST_VERSION` 同理，用于要求主程序版本。
+- 与 4C 的交互要知道：容器默认**不跑自动链路**，所以 required 在容器里的实际表现是「更新卡列出这条必须升级」，安装仍要人点（或在 compose 里显式 `AGENTHUB_PLUGIN_AUTO_UPDATE=1` 交给自动流程）。
 
 主程序内置官方公钥（keyId `agenthub-release-2026`），包内 manifest 的签名必须对得上才会装。`sha256` 只保证传输完整，信任判断在签名那一步。
 
-主程序的设置页有两个开关：
+主程序的设置页有两个开关（**桌面形态**）：
 
 - **自动更新插件**：已启用的官方插件有新版本时自动下载、校验、安装
 - **自动下载官方插件**：发现未安装的官方插件时自动装；开着的时候手动卸载也会被装回来
 
 两个开关都关掉后，日常更新暂停，但已安装插件低于 `minimumVersion` 时仍会补齐。
 
-下载走主程序自己的代理回退（先直连，失败再试本机常见代理端口），不需要插件额外配置。
+**容器（Docker）形态**：这两个开关的默认值是 conservative —— 自动链路（启动 +90s 首查、之后每小时一轮）默认**不跑**，要显式放行就在 compose 里设 `AGENTHUB_PLUGIN_AUTO_UPDATE=1`。手动「检查更新 / 安装」不受这个闸约束，照常可用。配置文件 `config.json` 不会被容器改写（覆盖只活在进程内）。
+
+下载走主程序自己的网络出口，插件不需要任何代理配置。两种形态的出口口径不同（收口在 `electron/backend/proxy/platform/`）：
+
+- 桌面：先直连（认系统代理），失败再依次试环境变量代理与**本机在监听的**常见代理端口（7890 / 7897 / 10809 / 10808 / 8118）
+- 容器：只认 `HTTPS_PROXY` / `HTTP_PROXY` 等环境变量，**不探本机端口** —— 容器里的 `127.0.0.1` 是容器自己，探了必然假阴性
+
+容器要换 feed 地址（指到本平台那份索引）有两条路：插件页/`PUT /api/plugins/feed` 写进配置，或在 compose 的 `environment` 里给 `AGENTHUB_PLUGIN_FEED`（例：`https://github.com/UltimateREN/AgentHub_skill/releases/latest/download/plugin-index-linux-x64-glibc.json`）。只接受 `https:`，非 https 会被拒绝并回落内置默认源。
 
 卸载只删插件目录，`plugin-data/<id>` 保留。装回来之后插件自己的配置和缓存还在。
 

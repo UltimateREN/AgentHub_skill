@@ -1,5 +1,17 @@
 name: Release plugin
 
+# 2026-11-12 板块 4E：从「只在 Windows 上出一个包」改为按平台矩阵出包。
+# 为什么必须多平台：tools/build-package.cjs 把 node_modules 里的**原生依赖**
+# （sharp / koffi 的 .node）一并打进签名包，并按构建机平台裁剪 manifest.runtime.platforms，
+# Windows 上构建出来的包在 Linux 容器里过不了宿主 extensions/manifest.cjs 的平台校验。
+#
+# feed 为什么分文件、而不是「同一个 id 每平台各出一条」：
+# 宿主 electron/backend/plugin-feed.cjs:58-62 的 plan() 在平台匹配**之前**就用 seen 去重，
+# 同一 id 只认第一条 → 后出现的平台条目会被静默忽略。所以每个平台各写一份
+# plugin-index-<平台标签>.json；不带后缀的 plugin-index.json 只由 win32/x64 构建产出
+# （= 桌面 DEFAULT_FEED 的既有地址，桌面自动更新零影响）。
+# 容器侧在插件页/`PUT /api/plugins/feed` 指向 plugin-index-linux-x64-glibc.json。
+
 on:
   push:
     tags: ["v*"]
@@ -10,19 +22,50 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false   # 一个平台构建失败不要把另一个平台的取证也掐掉
+      matrix:
+        include:
+          - runs-on: windows-latest
+            tag: win32-x64
+            seven: 7z          # Windows runner 自带 7-Zip，且在 PATH 上
+          - runs-on: ubuntu-latest
+            tag: linux-x64-glibc
+            seven: 7z
+          # ARM 机型（群晖 ARM NAS / 树莓派）需要时补这一条：
+          # 必须真跑在能报出 process.platform=linux + process.arch=arm64 的 runner 上，
+          # GitHub 托管的 arm64 linux runner 目前对**公开仓库**才免费，私有仓库要 self-hosted。
+          # 本仓库当前是私有发布线，故先不出 arm64 包（等待前置条件：可用的 arm64 runner）。
+          # - runs-on: [self-hosted, linux, ARM64]
+          #   tag: linux-arm64-glibc
+          #   seven: 7z
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - name: Install 7-Zip (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: command -v 7z >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y p7zip-full; }
 
       - name: Install dependencies
         run: npm ci
 
+      # 两个平台都跑测试：Linux 包若未经测试就发给容器，等于把「无桌面可救」的形态当试验田。
+      # 平台绑定的用例应当在**测试内部**按 process.platform 跳过，不要用 continue-on-error 掩盖红灯。
       - name: Test
         run: npm test
+
+      # 板块 4E 的 feed 布局回归（分平台文件 + 宿主 plugin-feed 语义对账）。
+      # 不塞进 package.json 的 test 链（那是用户在研的字段），挂在发布线上单独跑。
+      # 本仓库单独 clone 时取不到主仓库的 plugin-feed.cjs，脚本会自己 SKIP 并说明。
+      - name: Test feed layout (4E)
+        run: node test/packaging-feed.test.cjs
 
       - name: Write signing key
         shell: bash
@@ -34,8 +77,47 @@ jobs:
         shell: bash
         env:
           AGENTHUB_PLUGIN_SIGNING_KEY: .release/plugin-signing-key.pem
-          AGENTHUB_7ZA: 7z
+          AGENTHUB_7ZA: ${{ matrix.seven }}
+          # 强制升级下限。默认**留空**：容器没有桌面兜底，填了以后低于它的安装
+          # 会被列为 required（不受自动更新开关约束）。容器默认又不跑自动链路
+          # （AGENTHUB_PLUGIN_AUTO_UPDATE 未设），所以 required 在容器里表现为
+          # 「更新卡列出必须升级的条目，等用户点」——要真的强制，得由人工确认或开自动。
+          AGENTHUB_PLUGIN_MINIMUM_VERSION: ${{ vars.AGENTHUB_PLUGIN_MINIMUM_VERSION }}
+          AGENTHUB_PLUGIN_MIN_HOST_VERSION: ${{ vars.AGENTHUB_PLUGIN_MIN_HOST_VERSION }}
         run: node tools/build-package.cjs dist
+
+      # 私钥只用于本次签名，签完立刻从工作区抹掉，别留给后续步骤或日志抓取
+      - name: Wipe signing key
+        if: always()
+        shell: bash
+        run: rm -rf .release
+
+      - name: Check package manifest platform tag
+        shell: bash
+        run: |
+          node -e "const m=require('./dist/manifest.json');const p=m.runtime.platforms;console.log('runtime.platforms=',JSON.stringify(p));if(!p.length)throw new Error('平台声明被裁剪为空');if(p.length!==1)throw new Error('单平台构建却有多条平台声明：'+JSON.stringify(p));"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.tag }}
+          path: |
+            dist/*.zip
+            dist/plugin-index*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: plugin-*
+          path: dist
+          merge-multiple: true
 
       - name: Publish release
         shell: bash
@@ -43,8 +125,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/*.zip dist/plugin-index.json \
+          echo "发布资产清单："; ls -l dist
+          # 桌面自动更新走不带后缀的 plugin-index.json；容器按平台指到带后缀的那份。
+          NOTES="签名插件包与各平台更新清单。
+          
+          - 桌面版（默认 feed）：plugin-index.json —— 与以往同一个地址，行为不变
+          - Docker/容器：plugin-index-linux-x64-glibc.json（在插件页或 PUT /api/plugins/feed 里指过去）
+          - 包名带平台标签：*-win32-x64.zip / *-linux-x64-glibc.zip，容器务必下 glibc 那份
+          
+          校验：包内 manifest 已 Ed25519 签名，索引里的 sha256 由主程序逐字节校验。"
+          gh release create "$TAG" dist/*.zip dist/plugin-index*.json \
             --title "$TAG" \
-            --notes "插件包与更新清单，主程序按 plugin-index.json 自动更新。" \
+            --notes "$NOTES" \
             --verify-tag || \
-          gh release upload "$TAG" dist/*.zip dist/plugin-index.json --clobber
+          gh release upload "$TAG" dist/*.zip dist/plugin-index*.json --clobber
