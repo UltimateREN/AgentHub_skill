@@ -25,6 +25,7 @@ const { createAStudio } = require("./providers/astudio/provider.cjs");
 const { createDoubaoWork } = require("./providers/doubaowork/provider.cjs");
 const { createKiro } = require("./providers/kiro/provider.cjs");
 const { createAntigravity } = require("./providers/antigravity/provider.cjs");
+const { createMinimax } = require("./providers/minimax/provider.cjs");
 
 function settings() {
   const directory = process.env.AGENTHUB_PLUGIN_DATA_DIR;
@@ -61,4 +62,7 @@ runStdio({ providers: [createLoomy(config.loomy || {}),
   createAStudio(config.astudio || {}), createDoubaoWork(config.doubaowork || {}),
   createKiro(config.kiro || {}), createAntigravity(config.antigravity || {}),
   createZcode(config.zcode || {}),
-  createZcode(config.zcode_intl || {}, "zcode_intl")] });
+  createZcode(config.zcode_intl || {}, "zcode_intl"),
+  // 只注册已声明渠道：manifest 目前仅声明 minimax（国际版放量时再补 minimax_intl 声明与这一行），
+  // 未声明就注册会让宿主按清单拒收整包。
+  createMinimax(config.minimax || {})] });
