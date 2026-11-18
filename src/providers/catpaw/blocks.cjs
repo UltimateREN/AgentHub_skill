@@ -104,10 +104,16 @@ function normalizeImageBlock(block) {
   return { type: "image_url", imageUrl: { url: trimmed, detail } };
 }
 
-/** 递归校验 JSON 值（原实现 validateJsonValue）：嵌套深度 ≤12，不含危险键（原型污染面） */
+/** 工具参数允许的最深嵌套。原实现 12，示例 Agent2Providers 在 issue #416 后放宽到 32
+ *  （blocks.rs::MAX_ARGUMENTS_DEPTH）：深层工具参数真实存在，12 层会把结构稍复杂的
+ *  zod 系 MCP 工具整类误拒。这里校验的是**参数数据**而非 JSON Schema，所以不做组合键
+ *  豁免（组合键不计层只适用于 schema 侧），仅真实 object / array 嵌套计层。 */
+const MAX_ARGUMENTS_DEPTH = 32;
+
+/** 递归校验 JSON 值（原实现 validateJsonValue）：嵌套深度 ≤32，不含危险键（原型污染面） */
 function validateJsonValue(value, path, depth, makeError) {
   const fail = makeError || ((msg) => CatPawError.badRequest(msg));
-  if (depth > 12) throw fail(`${path} 嵌套过深`);
+  if (depth > MAX_ARGUMENTS_DEPTH) throw fail(`${path} 嵌套过深`);
   if (Array.isArray(value)) {
     value.forEach((item, index) => validateJsonValue(item, `${path}[${index}]`, depth + 1, makeError));
     return;

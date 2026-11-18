@@ -366,12 +366,49 @@ function createWorkBuddy(settings = {}) {
       const upstreamModel = String(privateValue(entry, "upstreamModel") || request.model);
       const body = rewrite(upstreamModel, request.input, account, settings); const base = channelConfig(channel);
       const requestHeaders = headers(channel, account, secrets, settings, { accept: "application/json, text/event-stream" });
-      let response;
-      for (const url of [base.chatUrl, base.consoleChatUrl].filter(Boolean)) {
-        response = await ctx.pool.network().fetch(url, { method: "POST", redirect: "error", signal: ctx.signal, headers: requestHeaders, body: JSON.stringify(body) });
-        if (response.status !== 404 && response.status !== 405) break;
+      // 入口级容错（借示例 Agent2API core/upstream/network_fallback.rs 的 switch_origin 语义）：
+      // CN 主入口**连接层失败**或 408/502/503/504（域名拦停、网关抖动）时，同一份 body 与
+      // 同一组头改发备用域名 —— wb.tencentbuddy.com 与 www.workbuddy.cn 同后端（示例
+      // providers/workbuddy/contract.rs 的 network_policy.backupOrigin 同源，仅 CN 站声明）。
+      // 业务 4xx（审核/限额/参数）换域名不会改变结论，绝不换入口；settings.backupChatUrl
+      // 置空串可整体关闭这条退路。
+      const backupChatUrl = channel === "workbuddy"
+        ? String(base.backupChatUrl == null ? "https://wb.tencentbuddy.com/v2/chat/completions" : base.backupChatUrl) : "";
+      const ENTRY_RETRY_STATUSES = new Set([408, 502, 503, 504]);
+      const queue = [base.chatUrl, base.consoleChatUrl].filter(Boolean);
+      const sent = new Set();
+      let response = null, networkError = null;
+      while (queue.length) {
+        const url = queue.find((entry) => !sent.has(entry));
+        if (!url) break;
+        sent.add(url);
+        try {
+          response = await ctx.pool.network().fetch(url, { method: "POST", redirect: "error", signal: ctx.signal, headers: requestHeaders, body: JSON.stringify(body) });
+        } catch (e) {
+          // 客户端断开/总时限已到：不是入口故障，原样上抛交给执行器按取消收尾
+          if (ctx.signal?.aborted) throw e;
+          networkError = e; response = null;
+          if (backupChatUrl && !sent.has(backupChatUrl)) { queue.splice(queue.indexOf(url) + 1, 0, backupChatUrl); }
+          continue;
+        }
+        if (response.status === 404 || response.status === 405) continue; // 端点级不可用：顺延下一个候选
+        if (backupChatUrl && !sent.has(backupChatUrl) && ENTRY_RETRY_STATUSES.has(response.status)) {
+          // 备用入口**优先于** console 端点重试：同为域名级故障时多试一个端点没有意义
+          try { await response.body?.cancel?.(); } catch { /* 已消费/无体 */ }
+          response = null;
+          queue.splice(queue.indexOf(url) + 1, 0, backupChatUrl);
+          continue;
+        }
+        break;
       }
-      if (!response) throw upstreamError(502, { message: "WorkBuddy 两个对话端点都没有响应" });
+      if (!response) {
+        // 连接类失败映射成协议层的可切换错误（category=network + replay=safe）：
+        // 宿主的选路/退避链据此「记休息、换号顺延」，而不是整请求按 service 域硬失败
+        if (networkError) throw forwardError({ code: "UPSTREAM_NETWORK",
+          message: `WorkBuddy 上游连接失败：${String(networkError.message || networkError).slice(0, 200)}`,
+          category: "network", scope: "invocation", status: 502, replay: "safe", retryable: true });
+        throw upstreamError(502, { message: "WorkBuddy 两个对话端点都没有响应" });
+      }
       if (response.status === 404 || response.status === 405)
         throw upstreamError(response.status, { message: `WorkBuddy 对话端点不可用 HTTP ${response.status}` });
       if (!response.ok) throw await httpError(response);

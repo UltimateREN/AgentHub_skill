@@ -176,7 +176,14 @@ class ProviderRuntime {
       const grantId = state.id;
       assert(identifier(grantId), "Missing scoped account grant");
       state.pending++;
-      try { return await this.peer.call(method, { grantId, ...extra }, { signal, timeoutMs: Math.max(1, Math.min(10000, deadline - Date.now())) }); }
+      // pool.network.* 是数据面长尾调用：等响应头（大 prompt 的 TTFT 实测可到 20~38s）与
+      // SSE 相邻两块之间的静默（深思考段）只受本次调用总时限与宿主自己的首包/空闲计时器
+      // 约束，**不能**套控制类 RPC 的 10 秒上限——否则慢首包与长思考段会先被 SDK 掐死，
+      // 错误还会以未分类的协议失败上抛（换号/退避全失效）。deadline 为 Infinity（无总时限）
+      // 时不挂超时，靠 signal 收口（与示例 Agent2API bodyTimeout:0 同口径）。
+      const budgetMs = Math.max(1, deadline - Date.now());
+      const timeoutMs = method.startsWith("pool.network.") ? budgetMs : Math.min(10000, budgetMs);
+      try { return await this.peer.call(method, { grantId, ...extra }, { signal, timeoutMs }); }
       finally { if (--state.pending === 0) state.drained?.(); }
     };
     return Object.freeze({
